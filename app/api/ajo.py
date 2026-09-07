@@ -1,0 +1,198 @@
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from uuid import UUID
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.core.config import settings
+from app.models import AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
+from app.schemas.ajo import AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
+from app.services.audit import audit
+from app.services.cycles import generate_cycles
+from app.services.notifications import notify
+router = APIRouter()
+
+def require_membership(db, ajo_id, user):
+    ajo = db.get(AjoGroup, ajo_id)
+    if not ajo: raise HTTPException(404, "Ajo not found")
+    member = db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.user_id == user.id, AjoMember.status == "ACTIVE"))
+    if not member: raise HTTPException(403, "Not a member")
+    return ajo, member
+
+def require_group_role(db, ajo_id, user, roles=frozenset({"OWNER", "ADMIN"})):
+    ajo, member = require_membership(db, ajo_id, user)
+    if member.role not in roles:
+        raise HTTPException(403, "Insufficient permission")
+    return ajo, member
+
+def normalized_phone_number(value: str) -> str:
+    return "".join(character for character in value if character.isdigit() or character == "+")
+
+@router.post("", response_model=AjoResponse, status_code=201)
+def create_ajo(payload: AjoCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo = AjoGroup(name=payload.name, description=payload.description, currency=payload.currency.upper(), contribution_amount=payload.contribution_amount, frequency=payload.frequency.upper(), payout_type=payload.payout_type.upper(), start_date=payload.start_date, created_by=user.id)
+    db.add(ajo); db.flush()
+    db.add(AjoMember(ajo_group_id=ajo.id, user_id=user.id, role="OWNER", payout_position=1))
+    db.add(AjoRule(ajo_group_id=ajo.id, grace_period_days=payload.grace_period_days, late_fee=payload.late_fee))
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="CREATE_AJO", entity_type="AjoGroup", entity_id=ajo.id)
+    db.commit(); db.refresh(ajo)
+    return ajo
+
+@router.get("", response_model=list[MyAjoResponse])
+def list_my_ajos(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.execute(select(AjoGroup, AjoMember).join(AjoMember, AjoMember.ajo_group_id == AjoGroup.id).where(AjoMember.user_id == user.id, AjoMember.status == "ACTIVE").order_by(AjoGroup.created_by.desc(), AjoGroup.name)).all()
+    return [{
+        "id": ajo.id,
+        "name": ajo.name,
+        "currency": ajo.currency,
+        "contribution_amount": ajo.contribution_amount,
+        "frequency": ajo.frequency,
+        "payout_type": ajo.payout_type,
+        "start_date": ajo.start_date,
+        "status": ajo.status,
+        "created_by": ajo.created_by,
+        "membership_role": membership.role,
+        "payout_position": membership.payout_position,
+    } for ajo, membership in rows]
+
+@router.get("/{ajo_id}", response_model=AjoResponse)
+def get_ajo(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return require_membership(db, ajo_id, user)[0]
+
+@router.get("/{ajo_id}/members", response_model=list[MemberDetailResponse])
+def list_members(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_membership(db, ajo_id, user)
+    rows = db.execute(select(AjoMember, User).join(User, AjoMember.user_id == User.id).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at)).all()
+    return [{
+        "id": member.id,
+        "user_id": member.user_id,
+        "role": member.role,
+        "payout_position": member.payout_position,
+        "status": member.status,
+        "first_name": member_user.first_name,
+        "last_name": member_user.last_name,
+        "email": member_user.email,
+        "phone_number": member_user.phone_number,
+    } for member, member_user in rows]
+
+@router.post("/{ajo_id}/members", response_model=MemberResponse, status_code=201)
+def add_member(ajo_id, payload: MemberAdd, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, actor = require_group_role(db, ajo_id, user)
+    if not db.get(User, payload.user_id): raise HTTPException(404, "User not found")
+    if db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.user_id == payload.user_id)):
+        raise HTTPException(409, "Already a member")
+    role = payload.role.upper()
+    if role not in {"MEMBER", "ADMIN", "TREASURER"}:
+        raise HTTPException(422, "Member role must be MEMBER, ADMIN, or TREASURER")
+    member = AjoMember(ajo_group_id=ajo.id, user_id=payload.user_id, role=role, payout_position=payload.payout_position)
+    db.add(member); db.flush()
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="ADD_MEMBER", entity_type="AjoMember", entity_id=member.id, new_values={"user_id": str(payload.user_id)})
+    db.commit(); db.refresh(member)
+    return member
+
+@router.patch("/{ajo_id}/members/{member_id}/role", response_model=MemberResponse)
+def update_member_role(ajo_id, member_id, payload: MemberRoleUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user, {"OWNER"})
+    member = db.get(AjoMember, member_id)
+    if not member or member.ajo_group_id != ajo.id:
+        raise HTTPException(404, "Member not found")
+    role = payload.role.upper()
+    if role not in {"ADMIN", "TREASURER", "MEMBER"}:
+        raise HTTPException(422, "Role must be ADMIN, TREASURER, or MEMBER")
+    if member.role == "OWNER":
+        raise HTTPException(409, "Owner role cannot be changed")
+    old_role = member.role
+    member.role = role
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="UPDATE_MEMBER_ROLE", entity_type="AjoMember", entity_id=member.id, old_values={"role": old_role}, new_values={"role": role})
+    db.commit(); db.refresh(member)
+    return member
+
+@router.post("/{ajo_id}/activate")
+def activate(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, actor = require_group_role(db, ajo_id, user)
+    if ajo.status != "DRAFT": raise HTTPException(409, "Ajo is not in DRAFT state")
+    generate_cycles(db, ajo)
+    ajo.status = "ACTIVE"
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="ACTIVATE_AJO", entity_type="AjoGroup", entity_id=ajo.id)
+    db.commit()
+    return {"status": "ACTIVE", "ajo_id": str(ajo.id)}
+
+@router.post("/{ajo_id}/invitations", response_model=InvitationResponse, status_code=201)
+def create_invitation(ajo_id, payload: InvitationCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user)
+    phone_number = normalized_phone_number(payload.phone_number)
+    if len(phone_number) < 7:
+        raise HTTPException(422, "A valid phone number is required")
+    role = payload.role.upper()
+    if role not in {"MEMBER", "ADMIN", "TREASURER"}:
+        raise HTTPException(422, "Invitation role must be MEMBER, ADMIN, or TREASURER")
+    existing = db.scalar(select(AjoInvitation).where(AjoInvitation.ajo_group_id == ajo.id, AjoInvitation.phone_number == phone_number, AjoInvitation.status == "PENDING"))
+    if existing and existing.expires_at > datetime.now(timezone.utc):
+        raise HTTPException(409, "A pending invitation already exists for this phone number")
+    if existing:
+        existing.status = "EXPIRED"
+    invitation = AjoInvitation(ajo_group_id=ajo.id, phone_number=phone_number, role=role, payout_position=payload.payout_position, invited_by=user.id, expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.invitation_expire_hours))
+    db.add(invitation); db.flush()
+    notify(db, event_type="AJO_INVITATION", title=f"Invitation to join {ajo.name}", body=f"You have been invited to join {ajo.name}.", phone_number=phone_number, ajo_group_id=ajo.id, channel="WHATSAPP", payload={"invitation_token": str(invitation.token)})
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="CREATE_INVITATION", entity_type="AjoInvitation", entity_id=invitation.id, new_values={"phone_number": phone_number, "role": role})
+    db.commit(); db.refresh(invitation)
+    return invitation
+
+@router.post("/invitations/accept", response_model=MemberResponse)
+def accept_invitation(payload: InvitationAccept, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    invitation = db.scalar(select(AjoInvitation).where(AjoInvitation.token == payload.token))
+    if not invitation:
+        raise HTTPException(404, "Invitation not found")
+    if invitation.status != "PENDING":
+        raise HTTPException(409, "Invitation is no longer pending")
+    if invitation.expires_at <= datetime.now(timezone.utc):
+        invitation.status = "EXPIRED"; db.commit()
+        raise HTTPException(409, "Invitation has expired")
+    if normalized_phone_number(user.phone_number or "") != invitation.phone_number:
+        raise HTTPException(403, "Your phone number does not match this invitation")
+    if db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == invitation.ajo_group_id, AjoMember.user_id == user.id)):
+        raise HTTPException(409, "You are already a member")
+    member = AjoMember(ajo_group_id=invitation.ajo_group_id, user_id=user.id, role=invitation.role, payout_position=invitation.payout_position)
+    invitation.status = "ACCEPTED"; invitation.accepted_by = user.id; invitation.accepted_at = datetime.now(timezone.utc)
+    db.add(member); db.flush()
+    audit(db, user_id=user.id, ajo_group_id=invitation.ajo_group_id, action="ACCEPT_INVITATION", entity_type="AjoInvitation", entity_id=invitation.id)
+    notify(db, event_type="INVITATION_ACCEPTED", title="Ajo invitation accepted", body="You are now a group member.", user_id=user.id, ajo_group_id=invitation.ajo_group_id)
+    db.commit(); db.refresh(member)
+    return member
+
+@router.get("/{ajo_id}/dashboard", response_model=GroupDashboard)
+def group_dashboard(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, member = require_membership(db, ajo_id, user)
+    next_schedule = db.scalar(select(ContributionSchedule).join(AjoCycle).where(ContributionSchedule.member_id == member.id, ContributionSchedule.status.in_(("EXPECTED", "SUBMITTED"))).order_by(ContributionSchedule.due_date))
+    current_cycle = db.scalar(select(AjoCycle).where(AjoCycle.ajo_group_id == ajo.id, AjoCycle.period_start <= datetime.now(timezone.utc).date(), AjoCycle.period_end >= datetime.now(timezone.utc).date()).order_by(AjoCycle.cycle_number))
+    activity = db.scalars(select(AuditLog).where(AuditLog.ajo_group_id == ajo.id).order_by(AuditLog.created_at.desc()).limit(10)).all()
+    return {
+        "group": ajo,
+        "membership": member,
+        "next_contribution": None if not next_schedule else {"schedule_id": str(next_schedule.id), "due_date": next_schedule.due_date, "expected_amount": next_schedule.expected_amount, "status": next_schedule.status},
+        "current_cycle": None if not current_cycle else {"cycle_id": str(current_cycle.id), "cycle_number": current_cycle.cycle_number, "period_start": current_cycle.period_start, "period_end": current_cycle.period_end, "status": current_cycle.status, "expected_amount": current_cycle.expected_amount},
+        "recent_activity": [{"action": item.action, "entity_type": item.entity_type, "entity_id": str(item.entity_id) if item.entity_id else None, "created_at": item.created_at} for item in activity],
+    }
+
+@router.get("/{ajo_id}/contributions/history", response_model=GroupHistory)
+def contribution_history(ajo_id, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, actor = require_membership(db, ajo_id, user)
+    query = select(ContributionSchedule, Contribution, AjoCycle).join(AjoCycle, ContributionSchedule.ajo_cycle_id == AjoCycle.id).outerjoin(Contribution, Contribution.contribution_schedule_id == ContributionSchedule.id).where(AjoCycle.ajo_group_id == ajo.id)
+    if member_id:
+        if actor.role not in {"OWNER", "ADMIN", "TREASURER"} and actor.id != member_id:
+            raise HTTPException(403, "Insufficient permission")
+        query = query.where(ContributionSchedule.member_id == member_id)
+    elif actor.role not in {"OWNER", "ADMIN", "TREASURER"}:
+        query = query.where(ContributionSchedule.member_id == actor.id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.execute(query.order_by(ContributionSchedule.due_date.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [{"schedule_id": str(schedule.id), "cycle_id": str(cycle.id), "cycle_number": cycle.cycle_number, "due_date": schedule.due_date, "expected_amount": schedule.expected_amount, "schedule_status": schedule.status, "contribution_id": str(contribution.id) if contribution else None, "paid_amount": contribution.paid_amount if contribution else None, "contribution_status": contribution.status if contribution else None} for schedule, contribution, cycle in rows], "page": page, "page_size": page_size, "total": total}
+
+@router.get("/{ajo_id}/cycles/history", response_model=GroupHistory)
+def cycle_history(ajo_id, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_membership(db, ajo_id, user)
+    query = select(AjoCycle, Payout).outerjoin(Payout, Payout.ajo_cycle_id == AjoCycle.id).where(AjoCycle.ajo_group_id == ajo.id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.execute(query.order_by(AjoCycle.cycle_number.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [{"cycle_id": str(cycle.id), "cycle_number": cycle.cycle_number, "period_start": cycle.period_start, "period_end": cycle.period_end, "recipient_member_id": str(cycle.payout_recipient_id) if cycle.payout_recipient_id else None, "expected_amount": cycle.expected_amount, "status": cycle.status, "payout_id": str(payout.id) if payout else None, "payout_status": payout.status if payout else None, "actual_amount": payout.actual_amount if payout else None} for cycle, payout in rows], "page": page, "page_size": page_size, "total": total}

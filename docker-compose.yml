@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ajocircle
+      POSTGRES_USER: ajocircle
+      POSTGRES_PASSWORD: ajocircle
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajocircle -d ajocircle"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+  db_test:
+    image: postgres:16
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: ajocircle_test
+      POSTGRES_USER: ajocircle
+      POSTGRES_PASSWORD: ajocircle
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajocircle -d ajocircle_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  test:
+    build: .
+    profiles: ["test"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://ajocircle:ajocircle@db_test:5432/ajocircle_test
+      JWT_SECRET_KEY: test-secret-not-for-production
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      INVITATION_EXPIRE_HOURS: 168
+      NOTIFICATION_PROVIDER: LOG
+    depends_on:
+      db_test:
+        condition: service_healthy
+    command: pytest -q
+    volumes:
+      - .:/app
+volumes:
+  postgres_data:

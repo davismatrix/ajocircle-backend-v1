@@ -1,0 +1,10 @@
+from decimal import Decimal
+from uuid import UUID
+from pydantic import BaseModel, Field
+class ContributionSubmit(BaseModel):
+    amount: Decimal = Field(gt=0)
+    payment_method: str = Field(min_length=2, max_length=30)
+    payment_reference: str = Field(min_length=1, max_length=255)
+class ContributionResponse(BaseModel):
+    id: UUID; contribution_schedule_id: UUID; member_id: UUID; expected_amount: Decimal; paid_amount: Decimal; status: str; payment_method: str | None; payment_reference: str | None
+    model_config = {"from_attributes": True}
