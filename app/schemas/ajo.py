@@ -2,16 +2,24 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
+SUPPORTED_CURRENCIES = {"NGN", "USD", "CAD", "GBP", "EUR"}
+
+
 class AjoCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
     currency: str = Field(default="NGN", min_length=3, max_length=3)
     contribution_amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     frequency: str = "MONTHLY"
     payout_type: str = "ROTATIONAL"
     start_date: date
-    grace_period_days: int = Field(default=0, ge=0)
+    grace_period_days: int = Field(default=0, ge=0, le=365)
     late_fee: Decimal = Field(default=Decimal("0"), ge=0, le=0)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def trim_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("frequency", "payout_type", "currency")
     @classmethod
@@ -21,11 +29,14 @@ class AjoCreate(BaseModel):
             raise ValueError("Frequency must be DAILY, WEEKLY, or MONTHLY")
         if info.field_name == "payout_type" and value != "ROTATIONAL":
             raise ValueError("Only ROTATIONAL payouts are supported")
-        if info.field_name == "currency" and (not value.isascii() or not value.isalpha()):
-            raise ValueError("Currency must contain three ASCII letters")
+        if info.field_name == "currency" and value not in SUPPORTED_CURRENCIES:
+            raise ValueError("Supported currencies are NGN, USD, CAD, GBP, and EUR")
         return value
 class AjoResponse(BaseModel):
     id: UUID; name: str; currency: str; contribution_amount: Decimal; frequency: str; payout_type: str; start_date: date; status: str; created_by: UUID
+    description: str | None
+    grace_period_days: int
+    late_fee: Decimal
     model_config = {"from_attributes": True}
 class MyAjoResponse(AjoResponse):
     membership_role: str

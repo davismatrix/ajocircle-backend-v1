@@ -1,12 +1,15 @@
+from hashlib import sha256
+import json
+
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from uuid import UUID
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.config import settings
-from app.models import AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
+from app.models import AjoCreationRequest, Notification, AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
 from app.schemas.ajo import AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
 from app.services.audit import audit
 from app.services.cycles import generate_cycles
@@ -30,15 +33,84 @@ def require_group_role(db, ajo_id, user, roles=frozenset({"OWNER", "ADMIN"})):
 def normalized_phone_number(value: str) -> str:
     return "".join(character for character in value if character.isdigit() or character == "+")
 
+def validate_start_date(value):
+    if value < datetime.now(timezone.utc).date():
+        raise HTTPException(422, [{"loc": ["body", "start_date"], "msg": "Start date must be today or later (UTC)", "type": "value_error"}])
+
+
+def request_hash(payload):
+    data = payload.model_dump(mode="json")
+    for field in ("contribution_amount", "late_fee"):
+        data[field] = format(getattr(payload, field).normalize(), "f")
+    return sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
 @router.post("", response_model=AjoResponse, status_code=201)
-def create_ajo(payload: AjoCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    ajo = AjoGroup(name=payload.name, description=payload.description, currency=payload.currency.upper(), contribution_amount=payload.contribution_amount, frequency=payload.frequency.upper(), payout_type=payload.payout_type.upper(), start_date=payload.start_date, created_by=user.id)
+def create_ajo(payload: AjoCreate, response: Response, idempotency_key: UUID | None = Header(default=None), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Serialize creations for this user, including keys which do not yet exist.
+    if idempotency_key:
+        db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+        previous = db.get(AjoCreationRequest, (user.id, idempotency_key))
+        if previous:
+            if previous.request_hash != request_hash(payload):
+                raise HTTPException(409, "This request key was already used with different group settings")
+            response.status_code = 200
+            return db.get(AjoGroup, previous.ajo_group_id)
+    # A retry remains valid even if the original start date has since passed.
+    validate_start_date(payload.start_date)
+    ajo = AjoGroup(**payload.model_dump(exclude={"grace_period_days", "late_fee"}), created_by=user.id)
     db.add(ajo); db.flush()
     db.add(AjoMember(ajo_group_id=ajo.id, user_id=user.id, role="OWNER", payout_position=1))
     db.add(AjoRule(ajo_group_id=ajo.id, grace_period_days=payload.grace_period_days, late_fee=payload.late_fee))
+    if idempotency_key:
+        db.add(AjoCreationRequest(user_id=user.id, request_key=idempotency_key, request_hash=request_hash(payload), ajo_group_id=ajo.id))
     audit(db, user_id=user.id, ajo_group_id=ajo.id, action="CREATE_AJO", entity_type="AjoGroup", entity_id=ajo.id)
     db.commit(); db.refresh(ajo)
     return ajo
+
+
+@router.patch("/{ajo_id}", response_model=AjoResponse)
+def edit_draft(ajo_id: UUID, payload: AjoCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user, {"OWNER"})
+    if ajo.status != "DRAFT":
+        raise HTTPException(409, "Only draft groups can be edited")
+    validate_start_date(payload.start_date)
+    current = AjoResponse.model_validate(ajo).model_dump(mode="json")
+    before = {field: current[field] for field in AjoCreate.model_fields}
+    after = payload.model_dump(mode="json")
+    if all(getattr(ajo, field) == value for field, value in payload.model_dump().items()):
+        return ajo
+    for field, value in payload.model_dump(exclude={"grace_period_days", "late_fee"}).items():
+        setattr(ajo, field, value)
+    if not ajo.rule:
+        ajo.rule = AjoRule(ajo_group_id=ajo.id)
+    ajo.rule.grace_period_days = payload.grace_period_days
+    ajo.rule.late_fee = payload.late_fee
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="UPDATE_AJO", entity_type="AjoGroup", entity_id=ajo.id, old_values=before, new_values=after)
+    for member in db.scalars(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE")):
+        notify(db, event_type="AJO_UPDATED", title="Group settings updated", body=f"The owner updated {ajo.name}. Review the group settings before activation.", user_id=member.user_id, ajo_group_id=ajo.id)
+    db.commit(); db.refresh(ajo)
+    return ajo
+
+
+@router.post("/{ajo_id}/cancel", response_model=AjoResponse)
+def cancel_draft(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user, {"OWNER"})
+    if ajo.status == "CANCELLED":
+        return ajo
+    if ajo.status != "DRAFT":
+        raise HTTPException(409, "Only draft groups can be cancelled")
+    ajo.status = "CANCELLED"
+    for invitation in db.scalars(select(AjoInvitation).where(AjoInvitation.ajo_group_id == ajo.id, AjoInvitation.status == "PENDING")):
+        invitation.status = "CANCELLED"
+    for notification in db.scalars(select(Notification).where(Notification.ajo_group_id == ajo.id, Notification.event_type == "AJO_INVITATION", Notification.status == "QUEUED")):
+        notification.status = "CANCELLED"
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="CANCEL_AJO", entity_type="AjoGroup", entity_id=ajo.id, old_values={"status": "DRAFT"}, new_values={"status": "CANCELLED"})
+    for member in db.scalars(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE")):
+        notify(db, event_type="AJO_CANCELLED", title="Group cancelled", body=f"The owner cancelled {ajo.name}.", user_id=member.user_id, ajo_group_id=ajo.id)
+    db.commit(); db.refresh(ajo)
+    return ajo
+
 
 @router.get("", response_model=list[MyAjoResponse])
 def list_my_ajos(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -53,6 +125,9 @@ def list_my_ajos(db: Session = Depends(get_db), user: User = Depends(get_current
         "start_date": ajo.start_date,
         "status": ajo.status,
         "created_by": ajo.created_by,
+        "description": ajo.description,
+        "grace_period_days": ajo.grace_period_days,
+        "late_fee": ajo.late_fee,
         "membership_role": membership.role,
         "payout_position": membership.payout_position,
     } for ajo, membership in rows]
@@ -115,6 +190,7 @@ def update_member_role(ajo_id: UUID, member_id: UUID, payload: MemberRoleUpdate,
 def activate(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_group_role(db, ajo_id, user)
     if ajo.status != "DRAFT": raise HTTPException(409, "Ajo is not in DRAFT state")
+    validate_start_date(ajo.start_date)
     try:
         generate_cycles(db, ajo)
     except ValueError as exc:

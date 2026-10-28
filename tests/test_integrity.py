@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import os
 import subprocess
@@ -23,7 +23,7 @@ def account(client, number):
 
 def create_group(client, token, **options):
     payload = {'name': 'Integrity Circle', 'contribution_amount': '100.00',
-               'start_date': '2026-01-31', **options}
+               'start_date': datetime.now(timezone.utc).date().isoformat(), **options}
     response = client.post('/api/v1/ajo-groups', headers=auth(token), json=payload)
     assert response.status_code == 201, response.text
     return response.json()['id']
@@ -106,13 +106,13 @@ def test_membership_freezes_on_activation(client):
         assert db.scalar(select(func.count()).select_from(AjoCycle)) == 1
 
 
-@pytest.mark.parametrize('frequency,second_start', [('DAILY', date(2026, 2, 1)),
-                                                   ('WEEKLY', date(2026, 2, 7)),
-                                                   ('MONTHLY', date(2026, 2, 28))])
+@pytest.mark.parametrize('frequency,second_start', [('DAILY', date(2100, 2, 1)),
+                                                   ('WEEKLY', date(2100, 2, 7)),
+                                                   ('MONTHLY', date(2100, 2, 28))])
 def test_frequency_and_grace_period(client, frequency, second_start):
     owner, _ = account(client, 1)
     _, member_id = account(client, 2)
-    group_id = create_group(client, owner, frequency=frequency.lower(), grace_period_days=2)
+    group_id = create_group(client, owner, frequency=frequency.lower(), grace_period_days=2, start_date="2100-01-31")
     client.post(f'/api/v1/ajo-groups/{group_id}/members', headers=auth(owner), json={'user_id': member_id})
     assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 200
     with SessionLocal() as db:

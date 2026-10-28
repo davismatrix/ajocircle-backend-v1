@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime, timezone
 
 from app.core.database import SessionLocal
 from app.models import Notification
@@ -33,7 +33,7 @@ def test_v11_member_lifecycle(client):
         "contribution_amount": "10000.00",
         "frequency": "MONTHLY",
         "payout_type": "ROTATIONAL",
-        "start_date": date.today().isoformat(),
+        "start_date": datetime.now(timezone.utc).date().isoformat(),
     })
     assert group_response.status_code == 201, group_response.text
     group_id = group_response.json()["id"]

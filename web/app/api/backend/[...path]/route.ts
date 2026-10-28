@@ -12,7 +12,10 @@ const cookieOptions = {
 type Context = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: Context) {
-  if (request.method !== "GET" && request.headers.get("origin") !== request.nextUrl.origin) {
+  // Next.js normalizes loopback URLs to localhost. The Host header retains
+  // the browser's actual destination (e.g. 127.0.0.1), needed for same-origin checks.
+  const expectedOrigin = `${request.nextUrl.protocol}//${request.headers.get("host") ?? request.nextUrl.host}`;
+  if (request.method !== "GET" && request.headers.get("origin") !== expectedOrigin) {
     return NextResponse.json({ detail: "Invalid request origin" }, { status: 403 });
   }
   const { path } = await context.params;
@@ -29,6 +32,8 @@ async function proxy(request: NextRequest, context: Context) {
   const isSignIn = ["auth/login", "auth/register"].includes(endpoint) && request.method === "POST";
   const headers = new Headers({ Accept: "application/json" });
   if (request.method !== "GET") headers.set("Content-Type", "application/json");
+  const requestKey = request.headers.get("Idempotency-Key");
+  if (requestKey) headers.set("Idempotency-Key", requestKey);
   const token = request.cookies.get(COOKIE_NAME)?.value;
   if (token && !isSignIn) headers.set("Authorization", `Bearer ${token}`);
   try {

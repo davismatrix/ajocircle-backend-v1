@@ -5,6 +5,9 @@ export type GroupRole = "OWNER" | "ADMIN" | "TREASURER" | "MEMBER";
 export type AjoGroup = {
   id: string;
   name: string;
+  description: string | null;
+  grace_period_days: number;
+  late_fee: string;
   currency: string;
   contribution_amount: string;
   frequency: Frequency;
@@ -41,3 +44,7 @@ export function formatDate(value: string) {
     year: "numeric", month: "short", day: "numeric",
   });
 }
+
+export const supportedCurrencies = ["NGN", "USD", "CAD", "GBP", "EUR"] as const;
+
+export function utcToday() { return new Date().toISOString().slice(0, 10); }

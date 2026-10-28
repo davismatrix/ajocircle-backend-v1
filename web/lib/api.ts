@@ -4,7 +4,7 @@ export type SessionResponse = { authenticated: boolean };
 export type CurrentUser = { id: string; first_name: string; last_name: string; email: string; phone_number: string | null; role: string };
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public fieldErrors: Record<string, string> = {}) {
     super(message);
   }
 }
@@ -26,7 +26,14 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     const message = Array.isArray(detail)
       ? detail.map((item) => item.msg).join(", ")
       : detail || "Something went wrong. Please try again.";
-    throw new ApiError(response.status, message);
+    const fieldErrors: Record<string, string> = {};
+    if (Array.isArray(detail)) {
+      for (const item of detail) {
+        const field = item.loc?.[0] === "body" ? item.loc[1] : null;
+        if (typeof field === "string" && typeof item.msg === "string") fieldErrors[field] = item.msg;
+      }
+    }
+    throw new ApiError(response.status, message, fieldErrors);
   }
   return response.json() as Promise<T>;
 }

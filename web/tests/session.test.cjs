@@ -76,3 +76,27 @@ test('API outage produces an actionable gateway error', async () => {
   assert.equal(response.status, 502);
   assert.match((await response.json()).detail, /Unable to reach/);
 });
+
+test('creation request key reaches the API unchanged', async () => {
+  const key = 'a3fe8d29-991e-407c-ac98-c1b26fdb8e31';
+  global.fetch = async (url, options) => {
+    assert.equal(options.headers.get('Idempotency-Key'), key);
+    return Response.json({ id: 'group-id' }, { status: 201 });
+  };
+  const response = await route.POST(request('ajo-groups', 'POST', {
+    headers: { origin: 'https://circle.example', 'Idempotency-Key': key }, body: '{}',
+  }), context('ajo-groups'));
+  assert.equal(response.status, 201);
+});
+
+test('loopback requests use the original Host while rejecting forged forwarded hosts', async () => {
+  global.fetch = async () => Response.json({ id: 'group-id' }, { status: 201 });
+  const response = await route.POST(new NextRequest('http://localhost:3101/api/backend/ajo-groups', {
+    method: 'POST', headers: { host: '127.0.0.1:3101', origin: 'http://127.0.0.1:3101' }, body: '{}',
+  }), context('ajo-groups'));
+  assert.equal(response.status, 201);
+  const rejected = await route.POST(new NextRequest('http://localhost:3101/api/backend/ajo-groups', {
+    method: 'POST', headers: { host: '127.0.0.1:3101', origin: 'https://evil.example', 'x-forwarded-host': 'evil.example' }, body: '{}',
+  }), context('ajo-groups'));
+  assert.equal(rejected.status, 403);
+});

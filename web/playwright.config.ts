@@ -1,17 +1,24 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const live = process.env.AJO_LIVE_E2E === "1";
+const port = live ? 3101 : 3100;
+
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: live ? "./e2e-live" : "./e2e",
   fullyParallel: true,
-  use: { baseURL: "http://127.0.0.1:3100", trace: "retain-on-failure" },
+  workers: 2,
+  timeout: live ? 60_000 : 30_000,
+  expect: { timeout: 10_000 },
+  outputDir: live ? "test-results-live" : "test-results",
+  use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure" },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile", use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" } },
   ],
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
-    env: { AJO_E2E: "1" },
-    url: "http://127.0.0.1:3100/login",
+    command: `npm run dev -- --hostname 127.0.0.1 --port ${port}`,
+    env: live ? { AJO_E2E: "live", API_URL: "http://127.0.0.1:8100/api/v1" } : { AJO_E2E: "1" },
+    url: `http://127.0.0.1:${port}/login`,
     reuseExistingServer: false,
     timeout: 120_000,
   },

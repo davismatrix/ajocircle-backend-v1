@@ -13,3 +13,5 @@ web/.test-build/
 web/test-results/
 web/playwright-report/
 web/.next-e2e/
+web/.next-live-e2e/
+web/test-results-live/

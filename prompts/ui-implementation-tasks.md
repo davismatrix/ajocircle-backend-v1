@@ -36,6 +36,12 @@
 - [x] Add empty state for users who have not joined a group.
   - Acceptance: an owner can create a draft group and immediately navigate to it.
   - Delivered: `/dashboard` lists groups; `/dashboard/ajos/new` creates a draft; `/dashboard/ajos/{id}` shows a basic group overview. Late fees are fixed at zero to match backend support. Cycle details and group administration remain in subsequent slices.
+- [x] Persist per-user creation request keys and recover uncertain submissions after reload.
+- [x] Show description, grace period, and late fee in saved group overviews.
+- [x] Define supported currencies and UTC start-date rules, with field-level validation errors.
+- [x] Allow owner-only draft editing and confirmed cancellation, preserving audit records.
+- [x] Test the live registration → creation/retry → overview → edit → list → cancellation flow against isolated FastAPI/PostgreSQL services on desktop and mobile.
+
 
 ## 4. Group dashboard
 

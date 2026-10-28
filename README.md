@@ -71,7 +71,23 @@ npm run test:e2e
 
 These tests use mocked API responses and start their own Next.js dev server on port 3100. They cover desktop and mobile group creation, list refresh after creation, errors/retry, and authentication redirects without touching PostgreSQL.
 
-To try Slice 3 manually: sign in, open **My Ajos**, select **Create a group**, fill out the form, and submit. You land on the new draft group overview; return to **My Ajos** to see its card. Rotational payouts and zero late fees match the current backend rules. Full cycle dashboards and member administration are later slices.
+For a live browser test against FastAPI and PostgreSQL, start the isolated services from the repository root:
+
+```bash
+docker compose --profile e2e up --build -d --wait api_e2e
+cd web
+npm run test:e2e:live
+```
+
+The live suite registers a fresh account, creates a group, deliberately drops its successful creation response, reloads the page, safely retries, reviews all saved settings, edits the draft, finds it in My Ajos, and cancels it. It runs on desktop and mobile. Its API uses port 8100, its UI uses 3101, and its PostgreSQL database is separate from both development and pytest. Test servers use separate Next.js build directories. Stop only the live services from the repository root when finished:
+
+```bash
+docker compose --profile e2e stop api_e2e db_e2e
+```
+
+The live database uses temporary storage and is cleared when stopped.
+
+To try Slice 3 manually: sign in, open **My Ajos**, select **Create a group**, fill out the form, and submit. You land on the new draft group overview; return to **My Ajos** to see its card. Rotational payouts and zero late fees match the current backend rules. Owners can review every saved setting, edit drafts, or cancel them with confirmation. Cancellation retains the group and audit records, cancels pending invitations, and prevents activation. Full cycle dashboards and member administration are later slices.
 
 ## Run
 
@@ -90,6 +106,7 @@ API docs: http://localhost:8000/docs
 
 ## Supported group and payment rules
 
+- Owners can edit or cancel DRAFT groups. Admins and members cannot edit/cancel, and ACTIVE/CANCELLED groups cannot be edited. Cancelled groups remain visible for reference.
 - Membership additions, invitation creation, and invitation acceptance are allowed only in DRAFT groups. Activation freezes the roster and generates the full rotation.
 - Frequencies: DAILY, WEEKLY, MONTHLY. Payout type: ROTATIONAL. Other values are rejected.
 - Contribution deadlines are the cycle start plus `grace_period_days`.
@@ -100,3 +117,21 @@ API docs: http://localhost:8000/docs
 - Duplicate submissions, verifications, payouts, and activation/membership changes are serialized using PostgreSQL row locks.
 
 `.env` and generated caches are ignored by Git and excluded from the backend image. If a real credential was previously committed, rotate it; removing the file from tracking does not remove Git history.
+
+## Group creation safety and validation
+
+- Supported currencies for new/edited groups: NGN, USD, CAD, GBP, EUR.
+- New and edited start dates must be today or later in UTC. Activation also requires a current/future start date. Update a draft's date if it has passed.
+- Grace periods must be between 0 and 365 days.
+- Names are trimmed and require 2–255 characters; descriptions are limited to 2,000 characters. Amounts must be positive, with at most two decimal places and 18 total digits.
+- `POST /api/v1/ajo-groups` accepts an optional UUID `Idempotency-Key` header. Keys are scoped to the authenticated user and stored atomically with the group. The same key and normalized settings return the existing group (HTTP 200); different settings with that key return HTTP 409. New creations return HTTP 201. Replaying a creation does not undo later edits or cancellations, and the key does not expire.
+- The UI always sends a creation key. It keeps uncertain requests in per-user session storage, including their original settings, so a same-tab reload can safely recover the group. Settings stay locked until the request is resolved. If browser storage is disabled, retries remain protected while the page stays open. API callers must reuse their request key after a lost response.
+- `PATCH /api/v1/ajo-groups/{id}` replaces draft settings using the complete creation-form payload; `POST /api/v1/ajo-groups/{id}/cancel` cancels a draft. Both are owner-only and serialized with activation and membership changes.
+- Group creation, details, listings, and dashboard responses include description, grace period, and late fee. Existing financial records are not rewritten by these changes.
+
+Apply migration `0003_group_creation_requests` before using creation keys:
+
+```bash
+docker compose exec api alembic upgrade head
+docker compose restart api
+```

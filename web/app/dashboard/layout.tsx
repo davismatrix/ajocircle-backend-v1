@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { CurrentUser, logout } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 
+import { CurrentUserContext } from "@/components/current-user";
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: user, error, retry } = useResource<CurrentUser>("/auth/me");
@@ -33,6 +35,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </nav>
     </header>
     {logoutError && <p className="error notice" role="alert">{logoutError}</p>}
-    {children}
+    <CurrentUserContext.Provider value={user}>{children}</CurrentUserContext.Provider>
   </main>;
 }

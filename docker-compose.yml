@@ -52,5 +52,39 @@ services:
     command: pytest -q
     volumes:
       - .:/app
+  db_e2e:
+    image: postgres:16
+    profiles: ["e2e"]
+    environment:
+      POSTGRES_DB: ajocircle_e2e_test
+      POSTGRES_USER: ajocircle
+      POSTGRES_PASSWORD: ajocircle
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajocircle -d ajocircle_e2e_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+  api_e2e:
+    build: .
+    profiles: ["e2e"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://ajocircle:ajocircle@db_e2e:5432/ajocircle_e2e_test
+      JWT_SECRET_KEY: isolated-e2e-secret-not-for-production
+    ports:
+      - "127.0.0.1:8100:8000"
+    depends_on:
+      db_e2e:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
 volumes:
   postgres_data:

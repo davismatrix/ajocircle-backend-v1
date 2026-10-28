@@ -60,3 +60,8 @@ input[readonly] { background: var(--canvas); color: var(--muted); }
 .dashboard-card > button { margin-top: 20px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 520px) { .page-heading { align-items: stretch; flex-direction: column; } .dashboard-card { padding: 24px; } .group-details { grid-template-columns: 1fr; } .app-header { gap: 12px; } }
+
+.field-error { color: var(--danger); font-size: .85rem; }
+[aria-invalid="true"] { border-color: var(--danger); }
+.group-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.draft-actions { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 32px; }

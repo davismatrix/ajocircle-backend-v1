@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 class AjoGroup(Base):
@@ -17,6 +17,15 @@ class AjoGroup(Base):
     start_date: Mapped[date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(30), default="DRAFT")
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    rule: Mapped["AjoRule | None"] = relationship(lazy="selectin", uselist=False)
+
+    @property
+    def grace_period_days(self):
+        return self.rule.grace_period_days if self.rule else 0
+
+    @property
+    def late_fee(self):
+        return self.rule.late_fee if self.rule else Decimal("0")
 
 class AjoMember(Base):
     __tablename__ = "ajo_members"
@@ -60,3 +69,11 @@ class AjoInvitation(Base):
     accepted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class AjoCreationRequest(Base):
+    __tablename__ = "ajo_creation_requests"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    request_key: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    ajo_group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ajo_groups.id"), unique=True)
