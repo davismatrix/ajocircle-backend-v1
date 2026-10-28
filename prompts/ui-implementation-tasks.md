@@ -24,7 +24,7 @@
 
 - [x] Build registration form: first name, last name, email, phone number, password.
 - [x] Build login form.
-- [ ] Replace the development-only browser token storage with an HttpOnly-cookie session strategy before production.
+- [x] Replace the development-only browser token storage with an HttpOnly-cookie session strategy before production.
 - [x] Display API validation failures, including the 72-byte password limit.
   - Acceptance: a new user can register, log out, and log back in from the UI.
 

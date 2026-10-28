@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "tsc -p tsconfig.session.json && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "next": "latest",

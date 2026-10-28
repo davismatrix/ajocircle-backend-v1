@@ -13,15 +13,16 @@ from app.services.cycles import generate_cycles
 from app.services.notifications import notify
 router = APIRouter()
 
-def require_membership(db, ajo_id, user):
-    ajo = db.get(AjoGroup, ajo_id)
+def require_membership(db, ajo_id, user, *, lock=False):
+    query = select(AjoGroup).where(AjoGroup.id == ajo_id)
+    ajo = db.scalar(query.with_for_update() if lock else query)
     if not ajo: raise HTTPException(404, "Ajo not found")
     member = db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.user_id == user.id, AjoMember.status == "ACTIVE"))
     if not member: raise HTTPException(403, "Not a member")
     return ajo, member
 
 def require_group_role(db, ajo_id, user, roles=frozenset({"OWNER", "ADMIN"})):
-    ajo, member = require_membership(db, ajo_id, user)
+    ajo, member = require_membership(db, ajo_id, user, lock=True)
     if member.role not in roles:
         raise HTTPException(403, "Insufficient permission")
     return ajo, member
@@ -57,11 +58,11 @@ def list_my_ajos(db: Session = Depends(get_db), user: User = Depends(get_current
     } for ajo, membership in rows]
 
 @router.get("/{ajo_id}", response_model=AjoResponse)
-def get_ajo(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_ajo(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return require_membership(db, ajo_id, user)[0]
 
 @router.get("/{ajo_id}/members", response_model=list[MemberDetailResponse])
-def list_members(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_members(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_membership(db, ajo_id, user)
     rows = db.execute(select(AjoMember, User).join(User, AjoMember.user_id == User.id).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at)).all()
     return [{
@@ -77,8 +78,10 @@ def list_members(ajo_id, db: Session = Depends(get_db), user: User = Depends(get
     } for member, member_user in rows]
 
 @router.post("/{ajo_id}/members", response_model=MemberResponse, status_code=201)
-def add_member(ajo_id, payload: MemberAdd, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def add_member(ajo_id: UUID, payload: MemberAdd, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_group_role(db, ajo_id, user)
+    if ajo.status != "DRAFT":
+        raise HTTPException(409, "Membership can only change while the group is DRAFT")
     if not db.get(User, payload.user_id): raise HTTPException(404, "User not found")
     if db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.user_id == payload.user_id)):
         raise HTTPException(409, "Already a member")
@@ -92,7 +95,7 @@ def add_member(ajo_id, payload: MemberAdd, db: Session = Depends(get_db), user: 
     return member
 
 @router.patch("/{ajo_id}/members/{member_id}/role", response_model=MemberResponse)
-def update_member_role(ajo_id, member_id, payload: MemberRoleUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def update_member_role(ajo_id: UUID, member_id: UUID, payload: MemberRoleUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_group_role(db, ajo_id, user, {"OWNER"})
     member = db.get(AjoMember, member_id)
     if not member or member.ajo_group_id != ajo.id:
@@ -109,18 +112,23 @@ def update_member_role(ajo_id, member_id, payload: MemberRoleUpdate, db: Session
     return member
 
 @router.post("/{ajo_id}/activate")
-def activate(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def activate(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_group_role(db, ajo_id, user)
     if ajo.status != "DRAFT": raise HTTPException(409, "Ajo is not in DRAFT state")
-    generate_cycles(db, ajo)
+    try:
+        generate_cycles(db, ajo)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     ajo.status = "ACTIVE"
     audit(db, user_id=user.id, ajo_group_id=ajo.id, action="ACTIVATE_AJO", entity_type="AjoGroup", entity_id=ajo.id)
     db.commit()
     return {"status": "ACTIVE", "ajo_id": str(ajo.id)}
 
 @router.post("/{ajo_id}/invitations", response_model=InvitationResponse, status_code=201)
-def create_invitation(ajo_id, payload: InvitationCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_invitation(ajo_id: UUID, payload: InvitationCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_group_role(db, ajo_id, user)
+    if ajo.status != "DRAFT":
+        raise HTTPException(409, "Membership can only change while the group is DRAFT")
     phone_number = normalized_phone_number(payload.phone_number)
     if len(phone_number) < 7:
         raise HTTPException(422, "A valid phone number is required")
@@ -144,6 +152,10 @@ def accept_invitation(payload: InvitationAccept, db: Session = Depends(get_db), 
     invitation = db.scalar(select(AjoInvitation).where(AjoInvitation.token == payload.token))
     if not invitation:
         raise HTTPException(404, "Invitation not found")
+    ajo = db.scalar(select(AjoGroup).where(AjoGroup.id == invitation.ajo_group_id).with_for_update())
+    if ajo.status != "DRAFT":
+        raise HTTPException(409, "Membership can only change while the group is DRAFT")
+    db.refresh(invitation, with_for_update=True)
     if invitation.status != "PENDING":
         raise HTTPException(409, "Invitation is no longer pending")
     if invitation.expires_at <= datetime.now(timezone.utc):
@@ -162,7 +174,7 @@ def accept_invitation(payload: InvitationAccept, db: Session = Depends(get_db), 
     return member
 
 @router.get("/{ajo_id}/dashboard", response_model=GroupDashboard)
-def group_dashboard(ajo_id, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def group_dashboard(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, member = require_membership(db, ajo_id, user)
     next_schedule = db.scalar(select(ContributionSchedule).join(AjoCycle).where(ContributionSchedule.member_id == member.id, ContributionSchedule.status.in_(("EXPECTED", "SUBMITTED"))).order_by(ContributionSchedule.due_date))
     current_cycle = db.scalar(select(AjoCycle).where(AjoCycle.ajo_group_id == ajo.id, AjoCycle.period_start <= datetime.now(timezone.utc).date(), AjoCycle.period_end >= datetime.now(timezone.utc).date()).order_by(AjoCycle.cycle_number))
@@ -176,7 +188,7 @@ def group_dashboard(ajo_id, db: Session = Depends(get_db), user: User = Depends(
     }
 
 @router.get("/{ajo_id}/contributions/history", response_model=GroupHistory)
-def contribution_history(ajo_id, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def contribution_history(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_membership(db, ajo_id, user)
     query = select(ContributionSchedule, Contribution, AjoCycle).join(AjoCycle, ContributionSchedule.ajo_cycle_id == AjoCycle.id).outerjoin(Contribution, Contribution.contribution_schedule_id == ContributionSchedule.id).where(AjoCycle.ajo_group_id == ajo.id)
     if member_id:
@@ -190,7 +202,7 @@ def contribution_history(ajo_id, page: int = Query(1, ge=1), page_size: int = Qu
     return {"items": [{"schedule_id": str(schedule.id), "cycle_id": str(cycle.id), "cycle_number": cycle.cycle_number, "due_date": schedule.due_date, "expected_amount": schedule.expected_amount, "schedule_status": schedule.status, "contribution_id": str(contribution.id) if contribution else None, "paid_amount": contribution.paid_amount if contribution else None, "contribution_status": contribution.status if contribution else None} for schedule, contribution, cycle in rows], "page": page, "page_size": page_size, "total": total}
 
 @router.get("/{ajo_id}/cycles/history", response_model=GroupHistory)
-def cycle_history(ajo_id, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def cycle_history(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_membership(db, ajo_id, user)
     query = select(AjoCycle, Payout).outerjoin(Payout, Payout.ajo_cycle_id == AjoCycle.id).where(AjoCycle.ajo_group_id == ajo.id)
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0

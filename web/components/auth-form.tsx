@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ApiError, login, register } from "@/lib/api";
-import { setAccessToken } from "@/lib/auth";
 
 type Mode = "login" | "register";
 
 export function AuthForm({ mode }: { mode: Mode }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -17,17 +18,16 @@ export function AuthForm({ mode }: { mode: Mode }) {
     setIsSubmitting(true);
     const data = new FormData(event.currentTarget);
     try {
-      const result = mode === "login"
-        ? await login({ email: String(data.get("email")), password: String(data.get("password")) })
-        : await register({
+      await (mode === "login"
+        ? login({ email: String(data.get("email")), password: String(data.get("password")) })
+        : register({
             first_name: String(data.get("first_name")),
             last_name: String(data.get("last_name")),
             email: String(data.get("email")),
             phone_number: String(data.get("phone_number")) || undefined,
             password: String(data.get("password")),
-          });
-      setAccessToken(result.access_token);
-      window.location.assign("/dashboard");
+          }));
+      router.replace("/dashboard");
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to reach the API. Please try again.");
     } finally {

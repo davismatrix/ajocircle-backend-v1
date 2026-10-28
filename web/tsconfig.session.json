@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "outDir": ".test-build",
+    "rootDir": "app/api/backend/[...path]",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "files": [
+    "app/api/backend/[...path]/route.ts"
+  ]
+}
