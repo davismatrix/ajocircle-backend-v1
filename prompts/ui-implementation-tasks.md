@@ -14,8 +14,8 @@
 ## 1. Frontend foundation
 
 - [x] Create the frontend application (recommended: Next.js + TypeScript).
-- [x] Add environment configuration for `NEXT_PUBLIC_API_URL`.
-- [x] Create a typed API client that attaches the bearer token and normalizes API errors.
+- [x] Add server-side environment configuration for `API_URL` (replaces `NEXT_PUBLIC_API_URL`).
+- [x] Create a typed API client with normalized API errors; the server-side proxy attaches the bearer token.
 - [x] Add authentication state persistence and logout.
 - [x] Create the base responsive layout: public layout, authenticated layout, navigation, loading, empty, and error states.
   - Acceptance: an unauthenticated user is redirected to login; API failures render an actionable message rather than a blank screen.
@@ -30,11 +30,12 @@
 
 ## 3. Group discovery and creation
 
-- [ ] Build the “My Ajos” page using `GET /ajo-groups` once available.
-- [ ] Build the create-group form: name, description, contribution amount, frequency, payout type, start date, grace period, and late fee.
-- [ ] Add a group card with status, contribution amount, user role, and next action.
-- [ ] Add empty state for users who have not joined a group.
+- [x] Build the “My Ajos” page using `GET /ajo-groups` once available.
+- [x] Build the create-group form: name, description, contribution amount, frequency, payout type, start date, grace period, and late fee.
+- [x] Add a group card with status, contribution amount, user role, and next action.
+- [x] Add empty state for users who have not joined a group.
   - Acceptance: an owner can create a draft group and immediately navigate to it.
+  - Delivered: `/dashboard` lists groups; `/dashboard/ajos/new` creates a draft; `/dashboard/ajos/{id}` shows a basic group overview. Late fees are fixed at zero to match backend support. Cycle details and group administration remain in subsequent slices.
 
 ## 4. Group dashboard
 

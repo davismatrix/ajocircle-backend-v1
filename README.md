@@ -47,9 +47,9 @@ The tests cover registration, invitations and acceptance, role changes, activati
 
 Direct test runs require an explicit `TEST_DATABASE_URL` whose database name ends in `_test`. The fixture refuses to run otherwise, before loading the application database configuration. Use a disposable test database: the suite creates and removes its application tables.
 
-## Web UI (Slice 2)
+## Web UI (Slice 2 - 3)
 
-The Next.js UI lives in `web/`. It currently provides registration, login, session restoration, sign-out, and a protected dashboard shell. Sessions use an HttpOnly cookie through a same-origin Next.js API proxy; access tokens are never returned to browser JavaScript. Production cookies require HTTPS.
+The Next.js UI lives in `web/`. It currently provides registration, login, session restoration, sign-out, a protected My Ajos page, a create-group form, and individual group overviews. Sessions use an HttpOnly cookie through a same-origin Next.js API proxy; access tokens are never returned to browser JavaScript. Production cookies require HTTPS.
 
 ```bash
 cd web
@@ -61,6 +61,17 @@ npm run dev
 Open http://localhost:3000. Set server-only `API_URL` in `web/.env.local` to the backend URL (default `http://localhost:8000/api/v1`). The browser calls the Next.js proxy, so it does not require cross-origin API access. The previous `NEXT_PUBLIC_API_URL` variable is no longer used. Restart Next.js after changing environment variables.
 
 From `web/`, run session tests with `npm test`, lint with `npm run lint`, and validate a production build with `npm run build`.
+
+For browser tests, install Chromium once and run:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+These tests use mocked API responses and start their own Next.js dev server on port 3100. They cover desktop and mobile group creation, list refresh after creation, errors/retry, and authentication redirects without touching PostgreSQL.
+
+To try Slice 3 manually: sign in, open **My Ajos**, select **Create a group**, fill out the form, and submit. You land on the new draft group overview; return to **My Ajos** to see its card. Rotational payouts and zero late fees match the current backend rules. Full cycle dashboards and member administration are later slices.
 
 ## Run
 

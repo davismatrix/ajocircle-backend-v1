@@ -1,29 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ApiError, CurrentUser, getCurrentUser, logout } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
+import { MyAjo, formatAmount, frequencyLabels } from "@/lib/ajo";
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: groups, error, loading, retry } = useResource<MyAjo[]>("/ajo-groups");
 
-  useEffect(() => {
-    getCurrentUser().then(setUser).catch((error) => {
-      if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
-      setError("Unable to load your account. Please try again.");
-    });
-  }, [router]);
-
-  if (error) return <main className="auth-shell"><section className="auth-card"><p className="error">{error}</p><Link href="/login">Go to login</Link></section></main>;
-  if (!user) return <main className="loading">Loading your AjoCircle…</main>;
-  return <main className="dashboard-shell">
-    <header><div><p className="eyebrow">AjoCircle</p><h1>Hello, {user.first_name}</h1></div><button className="secondary" onClick={async () => {
-      try { await logout(); router.replace("/login"); }
-      catch { setError("Unable to sign out. Please try again."); }
-    }}>Sign out</button></header>
-    <section className="dashboard-card"><h2>Your savings circles</h2><p className="muted">Group creation and your live dashboard are the next UI slice.</p></section>
-  </main>;
+  return <>
+    <div className="page-heading"><div><h1>My Ajos</h1><p className="muted">Your savings circles, all in one place.</p></div>
+      <Link className="button-link" href="/dashboard/ajos/new">Create a group</Link>
+    </div>
+    {loading && <p className="dashboard-card" role="status">Loading your savings circles…</p>}
+    {error && <section className="dashboard-card"><h2>Unable to load your groups</h2>
+      <p className="error" role="alert">{error}</p><button onClick={retry}>Try again</button>
+    </section>}
+    {groups?.length === 0 && <section className="dashboard-card empty-state">
+      <h2>Your first circle starts here</h2><p className="muted">You haven’t joined a savings group yet. Create one to start saving together, or ask a group owner for an invitation.</p>
+      <Link className="button-link" href="/dashboard/ajos/new">Create your first group</Link>
+    </section>}
+    {!!groups?.length && <ul className="group-grid" aria-label="Your savings groups">
+      {groups.map((group) => <li key={group.id} className="dashboard-card group-card">
+        <div className="card-heading"><h2>{group.name}</h2><span className={`badge ${group.status === "ACTIVE" ? "badge-active" : ""}`}>{group.status}</span></div>
+        <p className="contribution-amount">{formatAmount(group.contribution_amount, group.currency)}</p>
+        <p className="muted">{frequencyLabels[group.frequency]} contribution per member</p>
+        <p>Your role: <strong>{group.membership_role.toLowerCase()}</strong></p>
+        <Link href={`/dashboard/ajos/${group.id}`}>{group.status === "DRAFT" ? "View draft group" : "View group"} <span aria-hidden="true">→</span><span className="sr-only">: {group.name}</span></Link>
+      </li>)}
+    </ul>}
+  </>;
 }

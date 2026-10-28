@@ -10,3 +10,6 @@ web/.next/
 *.tsbuildinfo
 .DS_Store
 web/.test-build/
+web/test-results/
+web/playwright-report/
+web/.next-e2e/
