@@ -62,6 +62,28 @@ class InvitationCreate(BaseModel):
 class InvitationResponse(BaseModel):
     id: UUID; ajo_group_id: UUID; phone_number: str; role: str; payout_position: int | None; token: UUID; status: str; expires_at: datetime; created_at: datetime
     model_config = {"from_attributes": True}
+class InvitationPage(BaseModel):
+    items: list[InvitationResponse]
+    page: int
+    page_size: int
+    total: int
+
+class ActivationMember(BaseModel):
+    member_id: UUID
+    first_name: str
+    last_name: str
+    role: str
+    payout_position: int
+
+class ActivationPreview(BaseModel):
+    group: AjoResponse
+    members: list[ActivationMember]
+    pending_invitations: int
+    preview_hash: str
+
+class ActivationRequest(BaseModel):
+    preview_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
 class InvitationAccept(BaseModel):
     token: UUID
 class DashboardContribution(BaseModel):

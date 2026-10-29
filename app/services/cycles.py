@@ -22,7 +22,7 @@ def generate_cycles(db, ajo):
         if ajo.frequency == "MONTHLY":
             return add_months(ajo.start_date, offset)
         return ajo.start_date + timedelta(days=offset * (7 if ajo.frequency == "WEEKLY" else 1))
-    members = db.scalars(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at)).all()
+    members = db.scalars(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at, AjoMember.id)).all()
     if not members:
         raise ValueError("Ajo must have at least one active member")
     for position, member in enumerate(members, 1):

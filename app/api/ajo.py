@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.config import settings
 from app.models import AjoCreationRequest, Notification, AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
-from app.schemas.ajo import AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
+from app.schemas.ajo import ActivationPreview, ActivationRequest, InvitationPage, AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
 from app.services.audit import audit
 from app.services.cycles import generate_cycles
 from app.services.notifications import notify
@@ -139,7 +139,7 @@ def get_ajo(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(ge
 @router.get("/{ajo_id}/members", response_model=list[MemberDetailResponse])
 def list_members(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_membership(db, ajo_id, user)
-    rows = db.execute(select(AjoMember, User).join(User, AjoMember.user_id == User.id).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at)).all()
+    rows = db.execute(select(AjoMember, User).join(User, AjoMember.user_id == User.id).where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE").order_by(AjoMember.payout_position, AjoMember.joined_at, AjoMember.id)).all()
     return [{
         "id": member.id,
         "user_id": member.user_id,
@@ -186,10 +186,44 @@ def update_member_role(ajo_id: UUID, member_id: UUID, payload: MemberRoleUpdate,
     db.commit(); db.refresh(member)
     return member
 
+def activation_roster(db, ajo):
+    return db.execute(select(AjoMember, User).join(User, AjoMember.user_id == User.id)
+        .where(AjoMember.ajo_group_id == ajo.id, AjoMember.status == "ACTIVE")
+        .order_by(AjoMember.payout_position, AjoMember.joined_at, AjoMember.id)).all()
+
+
+def activation_hash(ajo, roster):
+    group = AjoResponse.model_validate(ajo).model_dump(mode="json")
+    members = [{"id": str(member.id), "role": member.role, "position": member.payout_position,
+                "first_name": user.first_name, "last_name": user.last_name} for member, user in roster]
+    return sha256(json.dumps({"group": group, "members": members}, sort_keys=True).encode()).hexdigest()
+
+
+@router.get("/{ajo_id}/activation-preview", response_model=ActivationPreview)
+def activation_preview(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user)
+    if ajo.status != "DRAFT": raise HTTPException(409, "Only draft groups can be activated")
+    roster = activation_roster(db, ajo)
+    pending = db.scalar(select(func.count()).select_from(AjoInvitation).where(
+        AjoInvitation.ajo_group_id == ajo.id, AjoInvitation.status == "PENDING",
+        AjoInvitation.expires_at > datetime.now(timezone.utc))) or 0
+    return {"group": ajo, "members": [{"member_id": member.id, "first_name": member_user.first_name,
+        "last_name": member_user.last_name, "role": member.role, "payout_position": position}
+        for position, (member, member_user) in enumerate(roster, 1)],
+        "pending_invitations": pending, "preview_hash": activation_hash(ajo, roster)}
+
+
 @router.post("/{ajo_id}/activate")
-def activate(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def activate(ajo_id: UUID, payload: ActivationRequest | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_group_role(db, ajo_id, user)
     if ajo.status != "DRAFT": raise HTTPException(409, "Ajo is not in DRAFT state")
+    now = datetime.now(timezone.utc)
+    pending = db.scalar(select(func.count()).select_from(AjoInvitation).where(
+        AjoInvitation.ajo_group_id == ajo.id, AjoInvitation.status == "PENDING", AjoInvitation.expires_at > now)) or 0
+    if pending: raise HTTPException(409, "Pending invitations must be accepted or cancelled before activation")
+    roster = activation_roster(db, ajo)
+    if payload and payload.preview_hash != activation_hash(ajo, roster):
+        raise HTTPException(409, "Group settings or membership changed. Review the activation details again")
     validate_start_date(ajo.start_date)
     try:
         generate_cycles(db, ajo)
@@ -199,6 +233,35 @@ def activate(ajo_id: UUID, db: Session = Depends(get_db), user: User = Depends(g
     audit(db, user_id=user.id, ajo_group_id=ajo.id, action="ACTIVATE_AJO", entity_type="AjoGroup", entity_id=ajo.id)
     db.commit()
     return {"status": "ACTIVE", "ajo_id": str(ajo.id)}
+
+
+@router.get("/{ajo_id}/invitations", response_model=InvitationPage)
+def list_invitations(ajo_id: UUID, response: Response, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user)
+    response.headers["Cache-Control"] = "no-store"
+    query = select(AjoInvitation).where(AjoInvitation.ajo_group_id == ajo.id,
+        AjoInvitation.status == "PENDING", AjoInvitation.expires_at > datetime.now(timezone.utc))
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    items = db.scalars(query.order_by(AjoInvitation.created_at.desc(), AjoInvitation.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+@router.post("/{ajo_id}/invitations/{invitation_id}/cancel", response_model=InvitationResponse)
+def cancel_invitation(ajo_id: UUID, invitation_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, _ = require_group_role(db, ajo_id, user)
+    invitation = db.get(AjoInvitation, invitation_id)
+    if not invitation or invitation.ajo_group_id != ajo.id: raise HTTPException(404, "Invitation not found")
+    if invitation.status == "CANCELLED": return invitation
+    if ajo.status != "DRAFT" or invitation.status != "PENDING": raise HTTPException(409, "Only pending draft invitations can be cancelled")
+    invitation.status = "CANCELLED"
+    for notification in db.scalars(select(Notification).where(Notification.ajo_group_id == ajo.id,
+        Notification.event_type == "AJO_INVITATION", Notification.status == "QUEUED",
+        Notification.payload["invitation_token"].astext == str(invitation.token))):
+        notification.status = "CANCELLED"
+    audit(db, user_id=user.id, ajo_group_id=ajo.id, action="CANCEL_INVITATION", entity_type="AjoInvitation", entity_id=invitation.id)
+    db.commit(); db.refresh(invitation)
+    return invitation
+
 
 @router.post("/{ajo_id}/invitations", response_model=InvitationResponse, status_code=201)
 def create_invitation(ajo_id: UUID, payload: InvitationCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

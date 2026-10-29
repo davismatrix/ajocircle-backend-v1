@@ -51,6 +51,9 @@
 - [x] Add predictable empty states for draft groups and groups with no current cycle.
   - Acceptance: members can understand their next required action without opening history pages.
   - Delivered: the dashboard supports activation, invitation token creation, owner role changes, contribution submission, and paginated review/verification for authorized roles. Invitation acceptance remains in Slice 5; full history pages remain in Slice 7.
+- [x] Review the frozen payout order before activation; reject stale reviews and block activation while live invitations remain pending.
+- [x] Recover pending invitation tokens after lost responses or reloads; allow authorized users to cancel invitations.
+- [x] Reconcile uncertain contribution submissions and verification before retrying, including after a same-tab reload.
 
 ## 5. Invitations and members
 

@@ -57,3 +57,8 @@ export type DashboardActivity = { action: string; entity_type: string; entity_id
 export type GroupDashboard = { group: AjoGroup; membership: Membership; next_contribution: DashboardContribution | null; current_cycle: DashboardCycle | null; recent_activity: DashboardActivity[] };
 export type PendingContribution = { contribution_id: string; member_id: string; first_name: string; last_name: string; cycle_number: number; due_date: string; paid_amount: string; payment_method: string | null; payment_reference: string | null };
 export type PendingContributions = { items: PendingContribution[]; page: number; page_size: number; total: number };
+
+export type Invitation = { id: string; phone_number: string; role: GroupRole; token: string; expires_at: string };
+export type InvitationPage = { items: Invitation[]; page: number; page_size: number; total: number };
+export type ActivationPreview = { group: AjoGroup; members: { member_id: string; first_name: string; last_name: string; role: GroupRole; payout_position: number }[]; pending_invitations: number; preview_hash: string };
+export type ContributionStatus = { schedule_id: string; schedule_status: string; contribution_id: string | null; contribution_status: string | null; payment_method: string | null; payment_reference: string | null };

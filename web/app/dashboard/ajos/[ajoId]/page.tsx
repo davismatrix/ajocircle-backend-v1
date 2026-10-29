@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useResource } from "@/hooks/use-resource";
 import { api, ApiError } from "@/lib/api";
-import { GroupDashboard, formatAmount, formatDate, frequencyLabels, utcToday } from "@/lib/ajo";
+import { ActivationPreview, GroupDashboard, formatAmount, formatDate, frequencyLabels, utcToday } from "@/lib/ajo";
 import { InviteMember, MemberRoles, SubmitContribution, VerifyContributions } from "@/components/dashboard-actions";
 
 const activityLabels: Record<string, string> = {
@@ -20,19 +20,35 @@ export default function GroupPage() {
   const { ajoId } = useParams<{ ajoId: string }>();
   const { data, error, retry, refresh } = useResource<GroupDashboard>(`/ajo-groups/${ajoId}/dashboard`);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<ActivationPreview | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  async function changeStatus(action: "activate" | "cancel") {
-    const message = action === "activate"
-      ? "Activate this group? The current members and their payout order will be used to generate the full schedule and cannot be changed afterwards."
-      : "Cancel this draft group? It cannot be activated afterwards. Group records will be kept.";
-    if (busy || !window.confirm(message)) return;
-    setBusy(true); setActionError(null);
-    try { await api(`/ajo-groups/${ajoId}/${action}`, { method: "POST" }); refresh(); }
+  async function reviewActivation() {
+    if (busy) return;
+    setBusy(true); setActionError(null); setPreview(null);
+    try { setPreview(await api<ActivationPreview>(`/ajo-groups/${ajoId}/activation-preview`)); }
     catch (error) {
       if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
-      setActionError(error instanceof ApiError ? error.message : "Unable to confirm the change. Refresh the dashboard before trying again.");
+      setActionError(error instanceof ApiError ? error.message : "Unable to load activation details. Try again.");
     } finally { setBusy(false); }
   }
+  async function changeStatus(action: "activate" | "cancel") {
+    if (busy || (action === "activate" && !preview)) return;
+    const message = action === "activate"
+      ? "Activate this group with the reviewed members and payout order? Membership will be frozen."
+      : "Cancel this draft group? It cannot be activated afterwards. Group records will be kept.";
+    if (!window.confirm(message)) return;
+    setBusy(true); setActionError(null);
+    try {
+      await api(`/ajo-groups/${ajoId}/${action}`, { method: "POST", ...(action === "activate" ? { body: JSON.stringify({ preview_hash: preview!.preview_hash }) } : {}) });
+      setPreview(null); refresh();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
+      setPreview(null); refresh();
+      setActionError(error instanceof ApiError ? error.message : "Unable to confirm the change. Check the refreshed dashboard before trying again.");
+    } finally { setBusy(false); }
+  }
+  function draftChanged() { setPreview(null); refresh(); }
 
   const group = data?.group;
   const role = data?.membership.role;
@@ -62,11 +78,23 @@ export default function GroupPage() {
             <div><dt>Your payout position</dt><dd>{data.membership.payout_position == null ? "Not assigned" : `${data.membership.payout_position}${group.status === "DRAFT" ? " (provisional)" : ""}`}</dd></div>
           </dl>
           {group.status === "DRAFT" && <div className="draft-actions">
-            {canAdmin && <button disabled={busy} onClick={() => changeStatus("activate")}>{busy ? "Please wait…" : "Activate group"}</button>}
+            {canAdmin && <button disabled={busy} onClick={reviewActivation}>{busy ? "Please wait…" : "Review activation"}</button>}
             {role === "OWNER" && <><Link className="button-link" href={`/dashboard/ajos/${group.id}/edit`}>Edit draft</Link>
               <button className="secondary" disabled={busy} onClick={() => changeStatus("cancel")}>{busy ? "Please wait…" : "Cancel group"}</button></>}
           </div>}
+          {preview && group.status === "DRAFT" && <div className="activation-review">
+            <h2>Review activation</h2>
+            <p>{preview.group.name} · {formatAmount(preview.group.contribution_amount, preview.group.currency)} {frequencyLabels[preview.group.frequency]?.toLowerCase()} · Starts {formatDate(preview.group.start_date)}</p>
+            {preview.members.length === 1 && <p>Only one member is currently in this group.</p>}
+            <p>Members in payout order:</p>
+            <ol>{preview.members.map((member) => <li key={member.member_id}>{member.first_name} {member.last_name} — {member.role.toLowerCase()}</li>)}</ol>
+            {preview.pending_invitations > 0 ? <p className="error" role="alert">{preview.pending_invitations} pending invitation(s) must be accepted or cancelled before activation.</p>
+              : <p>Membership and payout order will be frozen when you activate.</p>}
+            <button disabled={busy || preview.pending_invitations > 0 || preview.members.length === 0} onClick={() => changeStatus("activate")}>Confirm activation</button>
+            <button className="secondary" disabled={busy} onClick={reviewActivation}>Refresh review</button>
+          </div>}
           {actionError && <p className="error notice" role="alert">{actionError}</p>}
+          {notice && <p className="notice" role="status">{notice}</p>}
         </section>
         <section className="dashboard-card"><h2>Next contribution</h2>
           {group.status === "DRAFT" ? <p className="muted">A schedule will be created when the group is activated.</p>
@@ -74,7 +102,7 @@ export default function GroupPage() {
             : !next ? <p className="muted">You have no outstanding contribution scheduled.</p>
             : <><p><strong>{formatAmount(next.expected_amount, group.currency)}</strong> · Due {formatDate(next.due_date)}</p>
               <p>{next.status === "SUBMITTED" ? "Submitted — awaiting verification." : next.status === "EXPECTED" ? "Awaiting your contribution." : next.status}</p>
-              {next.status === "EXPECTED" && <SubmitContribution group={group} contribution={next} refresh={refresh} />}</>}
+              {next.status === "EXPECTED" && <SubmitContribution group={group} contribution={next} refresh={refresh} onResolved={setNotice} />}</>}
         </section>
         <section className="dashboard-card"><h2>Current cycle</h2>
           {group.status === "DRAFT" ? <p className="muted">Cycles will be generated when the group is activated.</p>
@@ -85,9 +113,9 @@ export default function GroupPage() {
               <p>Expected payout: {formatAmount(cycle.expected_amount, group.currency)}</p></>}
         </section>
         {group.status !== "CANCELLED" && ((group.status === "DRAFT" && canAdmin) || role === "OWNER" || (group.status === "ACTIVE" && canVerify)) && <section className="dashboard-card"><h2>Group actions</h2>
-          {group.status === "DRAFT" && canAdmin && <InviteMember group={group} refresh={refresh} />}
+          {group.status === "DRAFT" && canAdmin && <InviteMember group={group} refresh={draftChanged} />}
           {role === "OWNER" && <MemberRoles group={group} refresh={refresh} />}
-          {group.status === "ACTIVE" && canVerify && <VerifyContributions group={group} refresh={refresh} />}
+          {group.status === "ACTIVE" && canVerify && <VerifyContributions group={group} refresh={refresh} onResolved={setNotice} />}
         </section>}
         <section className="dashboard-card"><h2>Recent activity</h2>
           {data.recent_activity.length === 0 ? <p className="muted">No activity yet.</p> : <ul className="activity-list">{data.recent_activity.map((item, index) => <li key={`${item.action}-${item.entity_id}-${item.created_at}-${index}`}>

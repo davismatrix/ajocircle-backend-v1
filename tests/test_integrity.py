@@ -76,7 +76,7 @@ def test_full_amount_funding_currency_and_repeated_actions(client, active_group)
     assert payout(client, owner, cycle['payout_id']).status_code == 409
     assert payout(client, member, cycle['payout_id']).status_code == 403
     contribution_ids = fund_cycle(client, owner, member, group_id)
-    assert submit(client, member, schedule['schedule_id']).status_code == 409
+    assert submit(client, member, schedule['schedule_id']).status_code == 200
     assert client.post(f'/api/v1/contributions/{contribution_ids[0]}/verify', headers=auth(owner)).status_code == 409
     assert payout(client, owner, cycle['payout_id']).status_code == 200
     assert payout(client, owner, cycle['payout_id']).status_code == 409
@@ -94,6 +94,8 @@ def test_membership_freezes_on_activation(client):
     group_id = create_group(client, owner)
     invitation = client.post(f'/api/v1/ajo-groups/{group_id}/invitations', headers=auth(owner),
                              json={'phone_number': '+14165550002'}).json()
+    assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 409
+    assert client.post(f"/api/v1/ajo-groups/{group_id}/invitations/{invitation['id']}/cancel", headers=auth(owner)).status_code == 200
     assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 200
     assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 409
     assert client.post(f'/api/v1/ajo-groups/{group_id}/members', headers=auth(owner),
@@ -140,7 +142,7 @@ def test_concurrent_submissions_and_verifications(client, active_group):
     schedule_id = client.get(f'/api/v1/ajo-groups/{group_id}/dashboard', headers=auth(member)).json()['next_contribution']['schedule_id']
     with ThreadPoolExecutor(max_workers=2) as executor:
         responses = list(executor.map(lambda _: submit(client, member, schedule_id), range(2)))
-    assert sorted(response.status_code for response in responses) == [201, 409]
+    assert sorted(response.status_code for response in responses) == [200, 201]
     contribution_id = next(response.json()['id'] for response in responses if response.status_code == 201)
     with ThreadPoolExecutor(max_workers=2) as executor:
         responses = list(executor.map(lambda _: client.post(
@@ -205,10 +207,13 @@ def test_invitation_acceptance_and_activation_keep_roster_consistent(client):
         activation = executor.submit(client.post, f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner))
         acceptance = executor.submit(client.post, '/api/v1/ajo-groups/invitations/accept',
                                      headers=auth(member), json={'token': invitation['token']})
-        assert activation.result().status_code == 200
+        activation_status = activation.result().status_code
         accepted_status = acceptance.result().status_code
-        assert accepted_status in (200, 409)
-    expected_members = 2 if accepted_status == 200 else 1
+        assert accepted_status == 200
+        assert activation_status in (200, 409)
+    if activation_status == 409:
+        assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 200
+    expected_members = 2
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(AjoCycle)) == expected_members
         assert db.scalar(select(func.count()).select_from(ContributionSchedule)) == expected_members ** 2

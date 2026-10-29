@@ -8,3 +8,12 @@ class ContributionSubmit(BaseModel):
 class ContributionResponse(BaseModel):
     id: UUID; contribution_schedule_id: UUID; member_id: UUID; expected_amount: Decimal; paid_amount: Decimal; status: str; payment_method: str | None; payment_reference: str | None
     model_config = {"from_attributes": True}
+
+
+class ContributionStatus(BaseModel):
+    schedule_id: UUID
+    schedule_status: str
+    contribution_id: UUID | None
+    contribution_status: str | None
+    payment_method: str | None
+    payment_reference: str | None

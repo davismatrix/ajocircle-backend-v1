@@ -79,3 +79,5 @@ input[readonly] { background: var(--canvas); color: var(--muted); }
 .activity-list time { color: var(--muted); }
 .pagination { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 @media (max-width: 520px) { .member-list li, .activity-list li { align-items: flex-start; flex-direction: column; } }
+.activation-review { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 24px; }
+.activation-review button { margin: 12px 12px 0 0; }
