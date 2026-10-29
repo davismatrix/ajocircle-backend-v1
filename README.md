@@ -29,6 +29,7 @@ Important: V1 records payments; it does not custody funds or initiate bank trans
 - `PATCH /api/v1/ajo-groups/{ajo_id}/members/{member_id}/role`
 - `GET /api/v1/auth/me`, `GET /api/v1/ajo-groups`, `GET /api/v1/ajo-groups/{ajo_id}/members`
 - `GET /api/v1/ajo-groups/{ajo_id}/dashboard`
+- `GET /api/v1/ajo-groups/{ajo_id}/contributions/pending` (owner, admin, or treasurer)
 - `GET /api/v1/ajo-groups/{ajo_id}/contributions/history`
 - `GET /api/v1/ajo-groups/{ajo_id}/cycles/history`
 - `GET /api/v1/notifications`, `GET /api/v1/notifications/unread-count`, `POST /api/v1/notifications/{notification_id}/read`
@@ -49,7 +50,7 @@ Direct test runs require an explicit `TEST_DATABASE_URL` whose database name end
 
 ## Web UI (Slice 2 - 3)
 
-The Next.js UI lives in `web/`. It currently provides registration, login, session restoration, sign-out, a protected My Ajos page, a create-group form, and individual group overviews. Sessions use an HttpOnly cookie through a same-origin Next.js API proxy; access tokens are never returned to browser JavaScript. Production cookies require HTTPS.
+The Next.js UI lives in `web/`. It currently provides registration, login, session restoration, sign-out, a protected My Ajos page, a create-group form, and group dashboards with role-aware actions. Sessions use an HttpOnly cookie through a same-origin Next.js API proxy; access tokens are never returned to browser JavaScript. Production cookies require HTTPS.
 
 ```bash
 cd web
@@ -87,7 +88,7 @@ docker compose --profile e2e stop api_e2e db_e2e
 
 The live database uses temporary storage and is cleared when stopped.
 
-To try Slice 3 manually: sign in, open **My Ajos**, select **Create a group**, fill out the form, and submit. You land on the new draft group overview; return to **My Ajos** to see its card. Rotational payouts and zero late fees match the current backend rules. Owners can review every saved setting, edit drafts, or cancel them with confirmation. Cancellation retains the group and audit records, cancels pending invitations, and prevents activation. Full cycle dashboards and member administration are later slices.
+To try Slice 3 manually: sign in, open **My Ajos**, select **Create a group**, fill out the form, and submit. You land on the new draft group overview; return to **My Ajos** to see its card. Rotational payouts and zero late fees match the current backend rules. Owners can review every saved setting, edit drafts, or cancel them with confirmation. Cancellation retains the group and audit records, cancels pending invitations, and prevents activation. The dashboard displays the current cycle, next contribution, payout position, and activity. It provides role-aware activation, invitation creation, role updates, contribution submission, and verification. The invitation acceptance screen and full history pages are later slices.
 
 ## Run
 
@@ -135,3 +136,9 @@ Apply migration `0003_group_creation_requests` before using creation keys:
 docker compose exec api alembic upgrade head
 docker compose restart api
 ```
+
+## Group dashboard
+
+The dashboard uses `GET /api/v1/ajo-groups/{id}/dashboard`. The group owner and admins may activate a draft and invite members; only the owner may change member roles. Active members can submit their own scheduled contribution. Owners, admins, and treasurers can review submitted contributions and verify them after confirming payment externally. Invitation tokens must be shared manually; WhatsApp delivery is not enabled. Accepting invitations through the UI remains a later slice.
+
+The backend integration suite checks role boundaries and dashboard state. The live browser suite exercises registration, invitation creation and API acceptance, activation, contribution submission, and verification using the isolated test services described above.

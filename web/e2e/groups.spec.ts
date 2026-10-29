@@ -15,6 +15,13 @@ async function mockAccount(page: Page) {
   } }));
 }
 
+async function mockDashboard(page: Page, getGroup: () => typeof group) {
+  await page.route(`**/api/backend/ajo-groups/${group.id}/dashboard`, (route) => {
+    const current = getGroup();
+    return route.fulfill({ json: { group: current, membership: { id: "member-id", user_id: "owner-id", role: current.created_by === "owner-id" ? "OWNER" : "MEMBER", payout_position: 1, status: "ACTIVE" }, next_contribution: null, current_cycle: null, recent_activity: [] } });
+  });
+}
+
 async function fillGroup(page: Page) {
   await page.getByLabel("Group name").fill("Family savings");
   await page.getByLabel("Description").fill("Our monthly family circle");
@@ -31,6 +38,7 @@ test("create a draft from the empty list, view it, and find it in My Ajos", asyn
     await route.fulfill({ json: created ? [group] : [] });
   });
   await page.route(`**/api/backend/ajo-groups/${group.id}`, (route) => route.fulfill({ json: group }));
+  await mockDashboard(page, () => group);
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Your first circle starts here" })).toBeVisible();
   await page.getByRole("link", { name: "Create your first group" }).click();
@@ -96,7 +104,7 @@ test("unauthenticated visitors are sent to login", async ({ page }) => {
 
 test("inaccessible groups show an error and a route back to My Ajos", async ({ page }) => {
   await mockAccount(page);
-  await page.route(`**/api/backend/ajo-groups/${group.id}`, (route) => route.fulfill({ status: 403, json: { detail: "Not a member" } }));
+  await page.route(`**/api/backend/ajo-groups/${group.id}/dashboard`, (route) => route.fulfill({ status: 403, json: { detail: "Not a member" } }));
   await page.goto(`/dashboard/ajos/${group.id}`);
   await expect(page.getByRole("alert").filter({ hasText: "Not a member" })).toHaveText("Not a member");
   await expect(page.getByRole("link", { name: "← My Ajos" })).toBeVisible();
@@ -112,6 +120,7 @@ test("a lost creation response can be recovered after reload with the same key",
     else await route.fulfill({ json: group });
   });
   await page.route(`**/api/backend/ajo-groups/${group.id}`, (route) => route.fulfill({ json: group }));
+  await mockDashboard(page, () => group);
   await page.goto("/dashboard/ajos/new");
   await fillGroup(page);
   await page.getByRole("button", { name: "Create draft group" }).click();
@@ -129,6 +138,7 @@ test("a lost creation response can be recovered after reload with the same key",
 test("owners can edit and cancel a draft", async ({ page }) => {
   await mockAccount(page);
   let current = { ...group };
+  await mockDashboard(page, () => current);
   await page.route(`**/api/backend/ajo-groups/${group.id}`, async (route) => {
     if (route.request().method() === "PATCH") current = { ...current, ...route.request().postDataJSON() };
     await route.fulfill({ json: current });
@@ -151,7 +161,7 @@ test("owners can edit and cancel a draft", async ({ page }) => {
 
 test("members cannot see draft management actions", async ({ page }) => {
   await mockAccount(page);
-  await page.route(`**/api/backend/ajo-groups/${group.id}`, (route) => route.fulfill({ json: { ...group, created_by: "another-owner" } }));
+  await mockDashboard(page, () => ({ ...group, created_by: "another-owner" }));
   await page.goto(`/dashboard/ajos/${group.id}`);
   await expect(page.getByRole("heading", { name: group.name })).toBeVisible();
   await expect(page.getByRole("link", { name: "Edit draft", exact: true })).toHaveCount(0);

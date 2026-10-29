@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.config import settings
 from app.models import AjoCreationRequest, Notification, AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
-from app.schemas.ajo import AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
+from app.schemas.ajo import AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
 from app.services.audit import audit
 from app.services.cycles import generate_cycles
 from app.services.notifications import notify
@@ -262,6 +262,27 @@ def group_dashboard(ajo_id: UUID, db: Session = Depends(get_db), user: User = De
         "current_cycle": None if not current_cycle else {"cycle_id": str(current_cycle.id), "cycle_number": current_cycle.cycle_number, "period_start": current_cycle.period_start, "period_end": current_cycle.period_end, "status": current_cycle.status, "expected_amount": current_cycle.expected_amount},
         "recent_activity": [{"action": item.action, "entity_type": item.entity_type, "entity_id": str(item.entity_id) if item.entity_id else None, "created_at": item.created_at} for item in activity],
     }
+
+@router.get("/{ajo_id}/contributions/pending", response_model=PendingContributions)
+def pending_contributions(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ajo, actor = require_membership(db, ajo_id, user)
+    if actor.role not in {"OWNER", "ADMIN", "TREASURER"}:
+        raise HTTPException(403, "Insufficient permission")
+    query = (select(Contribution, ContributionSchedule, AjoCycle, AjoMember, User)
+        .join(ContributionSchedule, Contribution.contribution_schedule_id == ContributionSchedule.id)
+        .join(AjoCycle, ContributionSchedule.ajo_cycle_id == AjoCycle.id)
+        .join(AjoMember, Contribution.member_id == AjoMember.id)
+        .join(User, AjoMember.user_id == User.id)
+        .where(AjoCycle.ajo_group_id == ajo.id, Contribution.status == "SUBMITTED"))
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.execute(query.order_by(Contribution.submitted_at, Contribution.id).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [{"contribution_id": contribution.id, "member_id": member.id,
+        "first_name": member_user.first_name, "last_name": member_user.last_name,
+        "cycle_number": cycle.cycle_number, "due_date": schedule.due_date,
+        "paid_amount": contribution.paid_amount, "payment_method": contribution.payment_method,
+        "payment_reference": contribution.payment_reference} for contribution, schedule, cycle, member, member_user in rows],
+        "page": page, "page_size": page_size, "total": total}
+
 
 @router.get("/{ajo_id}/contributions/history", response_model=GroupHistory)
 def contribution_history(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

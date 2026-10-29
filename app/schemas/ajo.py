@@ -64,12 +64,49 @@ class InvitationResponse(BaseModel):
     model_config = {"from_attributes": True}
 class InvitationAccept(BaseModel):
     token: UUID
+class DashboardContribution(BaseModel):
+    schedule_id: UUID
+    due_date: date
+    expected_amount: Decimal
+    status: str
+
+class DashboardCycle(BaseModel):
+    cycle_id: UUID
+    cycle_number: int
+    period_start: date
+    period_end: date
+    status: str
+    expected_amount: Decimal
+
+class DashboardActivity(BaseModel):
+    action: str
+    entity_type: str
+    entity_id: UUID | None
+    created_at: datetime
+
 class GroupDashboard(BaseModel):
     group: AjoResponse
     membership: MemberResponse
-    next_contribution: dict | None
-    current_cycle: dict | None
-    recent_activity: list[dict]
+    next_contribution: DashboardContribution | None
+    current_cycle: DashboardCycle | None
+    recent_activity: list[DashboardActivity]
+
+class PendingContribution(BaseModel):
+    contribution_id: UUID
+    member_id: UUID
+    first_name: str
+    last_name: str
+    cycle_number: int
+    due_date: date
+    paid_amount: Decimal
+    payment_method: str | None
+    payment_reference: str | None
+
+class PendingContributions(BaseModel):
+    items: list[PendingContribution]
+    page: int
+    page_size: int
+    total: int
 class GroupHistory(BaseModel):
     items: list[dict]
     page: int

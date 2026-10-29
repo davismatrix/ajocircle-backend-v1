@@ -65,3 +65,17 @@ input[readonly] { background: var(--canvas); color: var(--muted); }
 [aria-invalid="true"] { border-color: var(--danger); }
 .group-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .draft-actions { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 32px; }
+.dashboard-sections { display: grid; gap: 20px; }
+.dashboard-action { border-top: 1px solid var(--border); padding: 16px 0; }
+.dashboard-action summary { color: var(--accent-dark); cursor: pointer; font-weight: 700; }
+.dashboard-action form { max-width: 480px; }
+.dashboard-action button { margin-top: 8px; }
+.invitation-result { margin-top: 20px; overflow-wrap: anywhere; }
+.member-list, .pending-list, .activity-list { list-style: none; margin: 16px 0 0; padding: 0; }
+.member-list li, .pending-list li, .activity-list li { border-top: 1px solid var(--border); padding: 14px 0; overflow-wrap: anywhere; }
+.member-list li { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.member-list label { min-width: 160px; }
+.activity-list li { display: flex; justify-content: space-between; gap: 16px; }
+.activity-list time { color: var(--muted); }
+.pagination { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+@media (max-width: 520px) { .member-list li, .activity-list li { align-items: flex-start; flex-direction: column; } }

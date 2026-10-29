@@ -45,26 +45,27 @@
 
 ## 4. Group dashboard
 
-- [ ] Build the group dashboard from `GET /ajo-groups/{ajo_id}/dashboard`.
-- [ ] Show group status, contribution amount/frequency, current cycle, next contribution, payout position, and recent activity.
-- [ ] Add role-aware actions: invite member, activate group, manage member role, submit contribution, or verify contribution.
-- [ ] Add predictable empty states for draft groups and groups with no current cycle.
+- [x] Build the group dashboard from `GET /ajo-groups/{ajo_id}/dashboard`.
+- [x] Show group status, contribution amount/frequency, current cycle, next contribution, payout position, and recent activity.
+- [x] Add role-aware actions: invite member, activate group, manage member role, submit contribution, or verify contribution.
+- [x] Add predictable empty states for draft groups and groups with no current cycle.
   - Acceptance: members can understand their next required action without opening history pages.
+  - Delivered: the dashboard supports activation, invitation token creation, owner role changes, contribution submission, and paginated review/verification for authorized roles. Invitation acceptance remains in Slice 5; full history pages remain in Slice 7.
 
 ## 5. Invitations and members
 
-- [ ] Build the invite-member modal/form using `POST /ajo-groups/{ajo_id}/invitations`.
-- [ ] Present the returned invitation token/link in a copyable state until live WhatsApp sending is enabled.
+- [x] Build the invite-member modal/form using `POST /ajo-groups/{ajo_id}/invitations`.
+- [x] Present the returned invitation token/link in a copyable state until live WhatsApp sending is enabled.
 - [ ] Build the accept-invitation page using `POST /ajo-groups/invitations/accept`.
-- [ ] Build member list and owner-only role update controls after the members endpoint is available.
+- [x] Build member list and owner-only role update controls after the members endpoint is available.
 - [ ] Enforce role-based visibility in the UI, while treating server-side authorization as authoritative.
   - Acceptance: an owner can invite a phone number; the invited account can accept; non-admin controls are not presented to ordinary members.
 
 ## 6. Contribution workflows
 
-- [ ] Build the contribution submission form from the dashboard schedule ID.
-- [ ] Capture amount, manual payment method, and payment reference.
-- [ ] Build the owner/admin/treasurer verification action for submitted contributions.
+- [x] Build the contribution submission form from the dashboard schedule ID.
+- [x] Capture amount, manual payment method, and payment reference.
+- [x] Build the owner/admin/treasurer verification action for submitted contributions.
 - [ ] Add confirmation states and disable repeated submissions while requests are in flight.
   - Acceptance: a member can submit one contribution and an authorized user can verify it; the dashboard and history reflect the new status.
 

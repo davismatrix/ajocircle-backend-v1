@@ -10,6 +10,7 @@ export function useResource<T>(path: string) {
   const router = useRouter();
   const [result, setResult] = useState<Result<T> | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   const retry = useCallback(() => { setResult(null); setAttempt((value) => value + 1); }, []);
 
   useEffect(() => {
@@ -25,5 +26,5 @@ export function useResource<T>(path: string) {
   }, [path, attempt, router]);
 
   const current = result?.path === path ? result : null;
-  return { data: current?.data ?? null, error: current?.error ?? null, loading: !current, retry };
+  return { data: current?.data ?? null, error: current?.error ?? null, loading: !current, retry, refresh };
 }
