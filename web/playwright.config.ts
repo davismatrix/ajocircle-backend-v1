@@ -17,7 +17,7 @@ export default defineConfig({
   ],
   webServer: {
     command: `npm run dev -- --hostname 127.0.0.1 --port ${port}`,
-    env: live ? { AJO_E2E: "live", API_URL: "http://127.0.0.1:8100/api/v1" } : { AJO_E2E: "1" },
+    env: live ? { AJO_E2E: "live", API_URL: "http://127.0.0.1:8100/api/v1" } : { AJO_E2E: "1", NEXT_PUBLIC_FIREBASE_API_KEY: "", NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "", NEXT_PUBLIC_FIREBASE_PROJECT_ID: "", NEXT_PUBLIC_FIREBASE_APP_ID: "" },
     url: `http://127.0.0.1:${port}/login`,
     reuseExistingServer: false,
     timeout: 120_000,

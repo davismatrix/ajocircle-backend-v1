@@ -59,10 +59,11 @@
 
 - [x] Build the invite-member modal/form using `POST /ajo-groups/{ajo_id}/invitations`.
 - [x] Present the returned invitation token/link in a copyable state until live WhatsApp sending is enabled.
-- [ ] Build the accept-invitation page using `POST /ajo-groups/invitations/accept`.
+- [x] Build the accept-invitation page using `POST /ajo-groups/invitations/accept`.
 - [x] Build member list and owner-only role update controls after the members endpoint is available.
-- [ ] Enforce role-based visibility in the UI, while treating server-side authorization as authoritative.
+- [x] Enforce role-based visibility in the UI, while treating server-side authorization as authoritative.
   - Acceptance: an owner can invite a phone number; the invited account can accept; non-admin controls are not presented to ordinary members.
+  - Delivered: invite links and token entry, same-tab continuation through login/registration, account switching, safe acceptance retry, and a member-visible roster with owner-only role controls. Phone ownership is verified through Firebase phone authentication over SMS before a new invitation can be accepted; configure Firebase in the frontend and backend environment.
 
 ## 6. Contribution workflows
 
@@ -90,7 +91,7 @@
 ## 9. Quality and delivery
 
 - [ ] Add component tests for forms, empty states, permission-based actions, and API error display.
-- [ ] Add browser end-to-end coverage for register → create group → invite → accept → activate → submit → verify.
+- [x] Add browser end-to-end coverage for register → create group → invite → accept → activate → submit → verify.
 - [ ] Run accessibility checks for keyboard navigation, labels, focus handling, and error announcements.
 - [ ] Add a frontend Dockerfile and Compose service only after local development is stable.
 - [ ] Document local setup, environment variables, and deployment configuration.

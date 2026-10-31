@@ -1,5 +1,6 @@
 import { AuthForm } from "@/components/auth-form";
 
-export default function RegisterPage() {
-  return <AuthForm mode="register" />;
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
+  const { next } = await searchParams;
+  return <AuthForm mode="register" continueInvitation={next === "/invitations/accept"} />;
 }

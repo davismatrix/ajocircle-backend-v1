@@ -12,7 +12,7 @@ router = APIRouter()
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(409, "Email already registered")
-    user = User(first_name=payload.first_name, last_name=payload.last_name, email=payload.email, phone_number=payload.phone_number, password_hash=hash_password(payload.password))
+    user = User(first_name=payload.first_name, last_name=payload.last_name, email=payload.email, claimed_phone_number=payload.phone_number, password_hash=hash_password(payload.password))
     db.add(user); db.commit(); db.refresh(user)
     return TokenResponse(access_token=create_access_token(str(user.id)))
 

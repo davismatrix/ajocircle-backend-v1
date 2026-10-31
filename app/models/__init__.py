@@ -5,3 +5,5 @@ from .payout import Payout
 from .ledger import FinancialLedger
 from .audit import AuditLog
 from .notification import Notification
+
+from .phone_verification import PhoneVerificationAttempt

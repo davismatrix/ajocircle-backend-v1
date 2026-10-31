@@ -9,8 +9,9 @@ from uuid import UUID
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.config import settings
+from app.core.phone import normalize_phone
 from app.models import AjoCreationRequest, Notification, AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
-from app.schemas.ajo import ActivationPreview, ActivationRequest, InvitationPage, AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
+from app.schemas.ajo import ActivationPreview, ActivationRequest, InvitationPage, InvitationAcceptedResponse, AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
 from app.services.audit import audit
 from app.services.cycles import generate_cycles
 from app.services.notifications import notify
@@ -172,15 +173,21 @@ def add_member(ajo_id: UUID, payload: MemberAdd, db: Session = Depends(get_db), 
 @router.patch("/{ajo_id}/members/{member_id}/role", response_model=MemberResponse)
 def update_member_role(ajo_id: UUID, member_id: UUID, payload: MemberRoleUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_group_role(db, ajo_id, user, {"OWNER"})
+    if ajo.status == "CANCELLED":
+        raise HTTPException(409, "Roles cannot be changed in a cancelled group")
     member = db.get(AjoMember, member_id)
     if not member or member.ajo_group_id != ajo.id:
         raise HTTPException(404, "Member not found")
+    if member.status != "ACTIVE":
+        raise HTTPException(409, "Only active members can change roles")
     role = payload.role.upper()
     if role not in {"ADMIN", "TREASURER", "MEMBER"}:
         raise HTTPException(422, "Role must be ADMIN, TREASURER, or MEMBER")
     if member.role == "OWNER":
         raise HTTPException(409, "Owner role cannot be changed")
     old_role = member.role
+    if old_role == role:
+        return member
     member.role = role
     audit(db, user_id=user.id, ajo_group_id=ajo.id, action="UPDATE_MEMBER_ROLE", entity_type="AjoMember", entity_id=member.id, old_values={"role": old_role}, new_values={"role": role})
     db.commit(); db.refresh(member)
@@ -268,9 +275,10 @@ def create_invitation(ajo_id: UUID, payload: InvitationCreate, db: Session = Dep
     ajo, _ = require_group_role(db, ajo_id, user)
     if ajo.status != "DRAFT":
         raise HTTPException(409, "Membership can only change while the group is DRAFT")
-    phone_number = normalized_phone_number(payload.phone_number)
-    if len(phone_number) < 7:
-        raise HTTPException(422, "A valid phone number is required")
+    try:
+        phone_number = normalize_phone(payload.phone_number)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     role = payload.role.upper()
     if role not in {"MEMBER", "ADMIN", "TREASURER"}:
         raise HTTPException(422, "Invitation role must be MEMBER, ADMIN, or TREASURER")
@@ -286,22 +294,31 @@ def create_invitation(ajo_id: UUID, payload: InvitationCreate, db: Session = Dep
     db.commit(); db.refresh(invitation)
     return invitation
 
-@router.post("/invitations/accept", response_model=MemberResponse)
+@router.post("/invitations/accept", response_model=InvitationAcceptedResponse)
 def accept_invitation(payload: InvitationAccept, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     invitation = db.scalar(select(AjoInvitation).where(AjoInvitation.token == payload.token))
     if not invitation:
         raise HTTPException(404, "Invitation not found")
     ajo = db.scalar(select(AjoGroup).where(AjoGroup.id == invitation.ajo_group_id).with_for_update())
+    # Verification and acceptance must agree on the account's current number.
+    user = db.scalar(select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True))
+    db.refresh(invitation, with_for_update=True)
+    # A lost response can be retried by the same account, even after activation.
+    if invitation.status == "ACCEPTED" and invitation.accepted_by == user.id and ajo.status in {"DRAFT", "ACTIVE"}:
+        member = db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == ajo.id, AjoMember.user_id == user.id, AjoMember.status == "ACTIVE"))
+        if member:
+            return member
     if ajo.status != "DRAFT":
         raise HTTPException(409, "Membership can only change while the group is DRAFT")
-    db.refresh(invitation, with_for_update=True)
     if invitation.status != "PENDING":
         raise HTTPException(409, "Invitation is no longer pending")
     if invitation.expires_at <= datetime.now(timezone.utc):
         invitation.status = "EXPIRED"; db.commit()
         raise HTTPException(409, "Invitation has expired")
-    if normalized_phone_number(user.phone_number or "") != invitation.phone_number:
-        raise HTTPException(403, "Your phone number does not match this invitation")
+    if not user.phone_verified:
+        raise HTTPException(403, "Verify your phone number before accepting this invitation")
+    if user.verified_phone_number != invitation.phone_number:
+        raise HTTPException(403, "Your verified phone number does not match this invitation")
     if db.scalar(select(AjoMember).where(AjoMember.ajo_group_id == invitation.ajo_group_id, AjoMember.user_id == user.id)):
         raise HTTPException(409, "You are already a member")
     member = AjoMember(ajo_group_id=invitation.ajo_group_id, user_id=user.id, role=invitation.role, payout_position=invitation.payout_position)

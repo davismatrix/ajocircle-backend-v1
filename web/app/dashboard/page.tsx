@@ -17,6 +17,7 @@ export default function DashboardPage() {
     </section>}
     {groups?.length === 0 && <section className="dashboard-card empty-state">
       <h2>Your first circle starts here</h2><p className="muted">You haven’t joined a savings group yet. Create one to start saving together, or ask a group owner for an invitation.</p>
+      <p><Link href="/invitations/accept">Join with an invitation</Link></p>
       <Link className="button-link" href="/dashboard/ajos/new">Create your first group</Link>
     </section>}
     {!!groups?.length && <ul className="group-grid" aria-label="Your savings groups">

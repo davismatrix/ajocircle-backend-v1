@@ -50,6 +50,9 @@ class MemberRoleUpdate(BaseModel):
 class MemberResponse(BaseModel):
     id: UUID; user_id: UUID; role: str; payout_position: int | None; status: str
     model_config = {"from_attributes": True}
+class InvitationAcceptedResponse(MemberResponse):
+    ajo_group_id: UUID
+
 class MemberDetailResponse(MemberResponse):
     first_name: str
     last_name: str

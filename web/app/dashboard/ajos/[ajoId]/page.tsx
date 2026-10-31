@@ -112,11 +112,11 @@ export default function GroupPage() {
               <p>{formatDate(cycle.period_start)} – {formatDate(cycle.period_end)}</p>
               <p>Expected payout: {formatAmount(cycle.expected_amount, group.currency)}</p></>}
         </section>
-        {group.status !== "CANCELLED" && ((group.status === "DRAFT" && canAdmin) || role === "OWNER" || (group.status === "ACTIVE" && canVerify)) && <section className="dashboard-card"><h2>Group actions</h2>
+        <section className="dashboard-card"><h2>Members and group actions</h2>
           {group.status === "DRAFT" && canAdmin && <InviteMember group={group} refresh={draftChanged} />}
-          {role === "OWNER" && <MemberRoles group={group} refresh={refresh} />}
+          <MemberRoles group={group} refresh={refresh} canManage={role === "OWNER" && group.status !== "CANCELLED"} />
           {group.status === "ACTIVE" && canVerify && <VerifyContributions group={group} refresh={refresh} onResolved={setNotice} />}
-        </section>}
+        </section>
         <section className="dashboard-card"><h2>Recent activity</h2>
           {data.recent_activity.length === 0 ? <p className="muted">No activity yet.</p> : <ul className="activity-list">{data.recent_activity.map((item, index) => <li key={`${item.action}-${item.entity_id}-${item.created_at}-${index}`}>
             <span>{activityLabels[item.action] ?? item.action.replaceAll("_", " ").toLowerCase()}</span>

@@ -1,7 +1,7 @@
 const API_URL = "/api/backend";
 
 export type SessionResponse = { authenticated: boolean };
-export type CurrentUser = { id: string; first_name: string; last_name: string; email: string; phone_number: string | null; role: string };
+export type CurrentUser = { id: string; first_name: string; last_name: string; email: string; phone_number: string | null; phone_verified: boolean; role: string };
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public fieldErrors: Record<string, string> = {}) {

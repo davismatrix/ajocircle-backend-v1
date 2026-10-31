@@ -30,7 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return <main className="dashboard-shell">
     <header className="app-header">
       <div><Link className="eyebrow brand" href="/dashboard">AjoCircle</Link><p className="muted greeting">Hello, {user.first_name}</p></div>
-      <nav aria-label="Main navigation"><Link href="/dashboard">My Ajos</Link>
+      <nav aria-label="Main navigation"><Link href="/dashboard">My Ajos</Link><Link href="/invitations/accept">Join a group</Link><Link href="/dashboard/phone">Phone verification</Link>
         <button className="secondary" disabled={signingOut} onClick={signOut}>{signingOut ? "Signing out…" : "Sign out"}</button>
       </nav>
     </header>

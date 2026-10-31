@@ -81,3 +81,7 @@ input[readonly] { background: var(--canvas); color: var(--muted); }
 @media (max-width: 520px) { .member-list li, .activity-list li { align-items: flex-start; flex-direction: column; } }
 .activation-review { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 24px; }
 .activation-review button { margin: 12px 12px 0 0; }
+.invitation-card > button { margin-top: 12px; }
+.phone-verification { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 20px; }
+.phone-verification h2 { font-size: 1.2rem; }
+.phone-verification form { margin-top: 16px; }

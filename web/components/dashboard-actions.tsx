@@ -12,6 +12,13 @@ function errorMessage(error: unknown) {
 }
 
 export function InviteMember({ group, refresh }: { group: AjoGroup; refresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  return <details className="dashboard-action" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Invite a member</summary>
+    {open && <InvitationPanel group={group} refresh={refresh} />}
+  </details>;
+}
+
+function InvitationPanel({ group, refresh }: { group: AjoGroup; refresh: () => void }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +49,7 @@ export function InviteMember({ group, refresh }: { group: AjoGroup; refresh: () 
       setError(`${errorMessage(error)} Check the refreshed invitation list.`); changed();
     } finally { setBusy(false); }
   }
-  return <details className="dashboard-action"><summary>Invite a member</summary>
+  return <>
     <p className="muted">The invited account must have the same phone number. Share the token with them securely.</p>
     <form onSubmit={submit}>
       <label>Phone number<input name="phone_number" type="tel" required minLength={7} maxLength={30} placeholder="+14165550101" /></label>
@@ -59,22 +66,23 @@ export function InviteMember({ group, refresh }: { group: AjoGroup; refresh: () 
       : <>{invitations.items.length === 0 ? <p>No pending invitations on this page.</p> : <ul className="pending-list">{invitations.items.map((invitation) => <li key={invitation.id}>
         <strong>{invitation.phone_number}</strong> · {invitation.role.toLowerCase()} · Expires {new Date(invitation.expires_at).toLocaleString()}
         <label>Invitation token for {invitation.phone_number}<input readOnly value={invitation.token} onFocus={(event) => event.currentTarget.select()} /></label>
+        <label>Invitation link for {invitation.phone_number}<input readOnly value={`${window.location.origin}/invitations/accept#token=${encodeURIComponent(invitation.token)}`} onFocus={(event) => event.currentTarget.select()} /></label>
         <button className="secondary" disabled={busy} onClick={() => cancel(invitation.id)}>Cancel invitation for {invitation.phone_number}</button>
       </li>)}</ul>}
       <div className="pagination"><button className="secondary" disabled={page <= 1 || busy} onClick={() => setPage(page - 1)}>Previous invitations</button>
         <span>Page {page} of {Math.max(1, Math.ceil(invitations.total / invitations.page_size))}</span>
         <button className="secondary" disabled={page * invitations.page_size >= invitations.total || busy} onClick={() => setPage(page + 1)}>Next invitations</button></div></>}
-  </details>;
+  </>;
 }
 
-export function MemberRoles({ group, refresh }: { group: AjoGroup; refresh: () => void }) {
+export function MemberRoles({ group, refresh, canManage }: { group: AjoGroup; refresh: () => void; canManage: boolean }) {
   const [open, setOpen] = useState(false);
-  return <details className="dashboard-action" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Manage member roles</summary>
-    {open && <MemberRoleList group={group} refresh={refresh} />}
+  return <details className="dashboard-action" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>{canManage ? "Manage member roles" : "View members"}</summary>
+    {open && <MemberRoleList group={group} refresh={refresh} canManage={canManage} />}
   </details>;
 }
 
-function MemberRoleList({ group, refresh }: { group: AjoGroup; refresh: () => void }) {
+function MemberRoleList({ group, refresh, canManage }: { group: AjoGroup; refresh: () => void; canManage: boolean }) {
   const router = useRouter();
   const { data: members, error, retry } = useResource<Member[]>(`/ajo-groups/${group.id}/members`);
   const [busy, setBusy] = useState<string | null>(null);
@@ -95,8 +103,8 @@ function MemberRoleList({ group, refresh }: { group: AjoGroup; refresh: () => vo
   return <><p className="muted">Only the owner can change roles.</p>
     {actionError && <p className="error" role="alert">{actionError}</p>}
     <ul className="member-list">{members.map((member) => <li key={member.id}>
-      <span>{member.first_name} {member.last_name} <span className="muted">({member.email})</span></span>
-      {member.role === "OWNER" ? <strong>Owner</strong> : <label>Role for {member.first_name} {member.last_name}<select value={member.role} disabled={Boolean(busy)} onChange={(event) => update(member, event.target.value)}>
+      <span>{member.first_name} {member.last_name}{member.payout_position != null && <span className="muted"> · Payout position {member.payout_position}</span>}</span>
+      {!canManage || member.role === "OWNER" ? <strong>{member.role.toLowerCase()}</strong> : <label>Role for {member.first_name} {member.last_name}<select value={member.role} disabled={Boolean(busy)} onChange={(event) => update(member, event.target.value)}>
         <option value="MEMBER">Member</option><option value="ADMIN">Admin</option><option value="TREASURER">Treasurer</option></select></label>}
     </li>)}</ul></>;
 }

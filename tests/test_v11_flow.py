@@ -13,7 +13,13 @@ def register(client, *, first_name, last_name, email, phone_number):
         "password": "safe-test-password-123",
     })
     assert response.status_code == 201, response.text
-    return response.json()["access_token"]
+    token = response.json()["access_token"]
+    if phone_number:
+        started = client.post("/api/v1/auth/phone-verification/start", headers=auth(token), json={"phone_number": phone_number})
+        assert started.status_code == 200, started.text
+        checked = client.post("/api/v1/auth/phone-verification/check", headers=auth(token), json={"attempt_id": started.json()["attempt_id"], "code": "123456"})
+        assert checked.status_code == 200, checked.text
+    return token
 
 
 def auth(token):

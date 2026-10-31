@@ -11,9 +11,22 @@ async function register(page: Page, email: string, phone: string) {
   await expect(page).toHaveURL("/dashboard");
 }
 
+// The isolated API uses its test-only provider; Firebase itself is exercised separately.
+async function verifyWithTestProvider(page: Page, phone: string) {
+  const statuses = await page.evaluate(async (number) => {
+    const start = await fetch("/api/backend/auth/phone-verification/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone_number: number }) });
+    if (!start.ok) return [start.status];
+    const attempt = await start.json();
+    const check = await fetch("/api/backend/auth/phone-verification/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attempt_id: attempt.attempt_id, code: "123456" }) });
+    return [start.status, check.status];
+  }, phone);
+  expect(statuses).toEqual([200, 200]);
+  await page.reload();
+}
+
 test("owner invites and activates; member submits and owner verifies", async ({ page, browser }) => {
   const suffix = crypto.randomUUID();
-  const digits = Date.now().toString().slice(-9) + Math.floor(Math.random() * 1000000).toString().padStart(6, "0");
+  const digits = Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000000).toString().padStart(6, "0");
   const phone = `+1${digits}`;
   await register(page, `owner-${suffix}@example.com`, `+2${digits}`);
   const memberContext = await browser.newContext();
@@ -45,15 +58,14 @@ test("owner invites and activates; member submits and owner verifies", async ({ 
     await page.getByText("Invite a member", { exact: true }).click();
     const tokenInput = page.getByLabel(`Invitation token for ${phone}`);
     await expect(tokenInput).toBeVisible();
-    const token = await tokenInput.inputValue();
+    const invitationLink = await page.getByLabel(`Invitation link for ${phone}`).inputValue();
     await page.getByRole("button", { name: "Review activation" }).click();
     await expect(page.getByText("1 pending invitation(s) must be accepted or cancelled before activation.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Confirm activation" })).toBeDisabled();
-    const accept = await member.evaluate(async (invitationToken) => {
-      const response = await fetch("/api/backend/ajo-groups/invitations/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: invitationToken }) });
-      return response.status;
-    }, token);
-    expect(accept).toBe(200);
+    await member.goto(invitationLink);
+    await verifyWithTestProvider(member, phone);
+    await member.getByRole("button", { name: "Accept invitation" }).click();
+    await expect(member.getByText("You joined the group as member.")).toBeVisible();
     await page.getByRole("button", { name: "Refresh review" }).click();
     await expect(page.getByRole("button", { name: "Confirm activation" })).toBeEnabled();
     page.once("dialog", (dialog) => dialog.accept());
