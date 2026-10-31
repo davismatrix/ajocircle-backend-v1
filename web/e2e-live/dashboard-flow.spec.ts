@@ -83,6 +83,7 @@ test("owner invites and activates; member submits and owner verifies", async ({ 
       else await route.continue();
     });
     await member.getByRole("button", { name: "Submit contribution" }).click();
+    await member.getByRole("button", { name: "Confirm submission" }).click();
     await expect(member.getByText("Submitted — awaiting verification.")).toBeVisible();
     await page.getByText("Review submitted contributions").click();
     await expect(page.getByText(`Method: Bank transfer · Reference: REF-${suffix}`)).toBeVisible();

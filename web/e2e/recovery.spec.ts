@@ -28,6 +28,7 @@ test("lost submission and unavailable status keep original payment details acros
   await page.getByLabel("Payment method").fill("Bank transfer");
   await page.getByLabel("Payment reference").fill("REF-1");
   await page.getByRole("button", { name: "Submit contribution" }).click();
+  await page.getByRole("button", { name: "Confirm submission" }).click();
   await expect(page.getByText("Unable to check submission status. Check again before changing payment details.")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Payment reference")).toBeDisabled();
@@ -100,6 +101,7 @@ test("safe replay reports an already verified contribution accurately", async ({
   await page.getByLabel("Payment method").fill("Bank transfer");
   await page.getByLabel("Payment reference").fill("REF-1");
   await page.getByRole("button", { name: "Submit contribution" }).click();
+  await page.getByRole("button", { name: "Confirm submission" }).click();
   await expect(page.getByRole("button", { name: "Retry submission" })).toBeVisible();
   await page.getByRole("button", { name: "Retry submission" }).click();
   await expect(page.getByText("Your contribution has been verified.").first()).toBeVisible();

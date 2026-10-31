@@ -59,6 +59,7 @@ export default function GroupPage() {
 
   return <>
     <Link className="back-link" href="/dashboard">← My Ajos</Link>
+    {notice && <p className="notice" role="status">{notice}</p>}
     {error ? <section className="dashboard-card"><h1>Unable to load this group</h1><p role="alert" className="error">{error}</p>
       <button onClick={retry}>Try again</button></section>
       : !data || !group ? <p className="dashboard-card" role="status">Loading your group…</p>
@@ -94,7 +95,6 @@ export default function GroupPage() {
             <button className="secondary" disabled={busy} onClick={reviewActivation}>Refresh review</button>
           </div>}
           {actionError && <p className="error notice" role="alert">{actionError}</p>}
-          {notice && <p className="notice" role="status">{notice}</p>}
         </section>
         <section className="dashboard-card"><h2>Next contribution</h2>
           {group.status === "DRAFT" ? <p className="muted">A schedule will be created when the group is activated.</p>
@@ -102,7 +102,7 @@ export default function GroupPage() {
             : !next ? <p className="muted">You have no outstanding contribution scheduled.</p>
             : <><p><strong>{formatAmount(next.expected_amount, group.currency)}</strong> · Due {formatDate(next.due_date)}</p>
               <p>{next.status === "SUBMITTED" ? "Submitted — awaiting verification." : next.status === "EXPECTED" ? "Awaiting your contribution." : next.status}</p>
-              {next.status === "EXPECTED" && <SubmitContribution group={group} contribution={next} refresh={refresh} onResolved={setNotice} />}</>}
+              {next.status === "EXPECTED" && <SubmitContribution key={next.schedule_id} group={group} contribution={next} refresh={refresh} onResolved={setNotice} />}</>}
         </section>
         <section className="dashboard-card"><h2>Current cycle</h2>
           {group.status === "DRAFT" ? <p className="muted">Cycles will be generated when the group is activated.</p>

@@ -32,6 +32,7 @@ test("member sees cycle, payout position and submits a contribution", async ({ p
   await page.getByLabel("Payment method").fill("Bank transfer");
   await page.getByLabel("Payment reference").fill("REF-1");
   await page.getByRole("button", { name: "Submit contribution" }).click();
+  await page.getByRole("button", { name: "Confirm submission" }).click();
   await expect(page.getByText("Submitted — awaiting verification.")).toBeVisible();
 });
 

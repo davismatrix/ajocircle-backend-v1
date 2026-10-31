@@ -75,8 +75,9 @@
 - [x] Build the contribution submission form from the dashboard schedule ID.
 - [x] Capture amount, manual payment method, and payment reference.
 - [x] Build the owner/admin/treasurer verification action for submitted contributions.
-- [ ] Add confirmation states and disable repeated submissions while requests are in flight.
+- [x] Add confirmation states and disable repeated submissions while requests are in flight.
   - Acceptance: a member can submit one contribution and an authorized user can verify it; the dashboard and history reflect the new status.
+  - Delivered: fixed-amount payment entry, review/edit/confirm before recording a contribution, synchronous in-flight guards, and persistent confirmation notices. Uncertain submissions retain their original payment details; uncertain verification blocks other review actions until checked. Backend tests verify dashboard/history transitions, permissions, replay behavior, and a single ledger entry. Full history screens remain in Slice 7.
 
 ## 7. History and records
 

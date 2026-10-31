@@ -174,27 +174,33 @@ export function SubmitContribution({ group, contribution, refresh, onResolved }:
   const storageKey = `ajocircle.pending-contribution.${user.id}.${group.id}.${contribution.schedule_id}`;
   const [restored] = useState(() => readSubmission(storageKey));
   const pending = useRef<PendingSubmission | null>(restored);
+  const inFlight = useRef(false);
+  const [method, setMethod] = useState(restored?.payment_method ?? "");
+  const [reference, setReference] = useState(restored?.payment_reference ?? "");
+  const [reviewed, setReviewed] = useState<PendingSubmission | null>(null);
   const [recovering, setRecovering] = useState(Boolean(restored));
+  const [open, setOpen] = useState(Boolean(restored));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   function save(value: PendingSubmission | null) {
     pending.current = value;
     try { if (value) sessionStorage.setItem(storageKey, JSON.stringify(value)); else sessionStorage.removeItem(storageKey); }
     catch { /* Same-page retries still retain their original payment details. */ }
   }
+  function resolved(message: string) {
+    save(null); setRecovering(false); setReviewed(null); setSuccessMessage(message);
+    setOpen(true); onResolved(message); refresh();
+  }
   async function reconcile() {
     try {
       const status = await api<ContributionStatus>(`/contributions/schedules/${contribution.schedule_id}/status`);
       if (status.contribution_status) {
         const same = !pending.current || (pending.current.payment_method === status.payment_method && pending.current.payment_reference === status.payment_reference);
-        save(null); setRecovering(false); setSuccess(true); refresh();
-        const message = !same ? "A contribution with different payment details already exists. Contact a group administrator."
+        resolved(!same ? "A contribution with different payment details already exists. Contact a group administrator."
           : status.contribution_status === "VERIFIED" ? "Your contribution has been verified."
           : status.contribution_status === "SUBMITTED" ? "Your contribution was submitted and is awaiting verification."
-          : `A contribution has status ${status.contribution_status}. Contact a group administrator.`;
-        onResolved(message);
+          : `A contribution has status ${status.contribution_status}. Contact a group administrator.`);
       } else {
         setRecovering(true);
         setError("No submission is recorded yet. Retry using the original payment details or check the status again.");
@@ -205,46 +211,70 @@ export function SubmitContribution({ group, contribution, refresh, onResolved }:
     }
   }
   async function checkStatus() {
-    if (busy) return;
-    setBusy(true); setError(null);
-    try { await reconcile(); } finally { setBusy(false); }
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError(null);
+    try { await reconcile(); } finally { inFlight.current = false; setBusy(false); }
+  }
+  function review(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (inFlight.current || successMessage) return;
+    const payment_method = method.trim();
+    const payment_reference = reference.trim();
+    if (payment_method.length < 2 || !payment_reference) {
+      setError("Enter a payment method of at least two characters and a payment reference; blank spaces are not sufficient.");
+      return;
+    }
+    setError(null); setOpen(true);
+    setReviewed({ schedule_id: contribution.schedule_id, amount: contribution.expected_amount, payment_method, payment_reference });
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (busy) return;
-    const data = new FormData(event.currentTarget);
-    const payload = recovering && pending.current ? pending.current : {
-      schedule_id: contribution.schedule_id, amount: contribution.expected_amount,
-      payment_method: String(data.get("payment_method")).trim(), payment_reference: String(data.get("payment_reference")).trim(),
-    };
+    event.preventDefault();
+    const payload = recovering ? pending.current : reviewed;
+    if (inFlight.current || successMessage || !payload) return;
+    inFlight.current = true;
     setBusy(true); setError(null); save(payload);
     try {
-      const result = await api<{ status: string }>(`/contributions/${contribution.schedule_id}/submit`, { method: "POST", body: JSON.stringify({
+      const result = await api<{ status: string }>(`/contributions/${payload.schedule_id}/submit`, { method: "POST", body: JSON.stringify({
         amount: payload.amount, payment_method: payload.payment_method, payment_reference: payload.payment_reference,
       }) });
-      const message = result.status === "VERIFIED" ? "Your contribution has been verified."
+      resolved(result.status === "VERIFIED" ? "Your contribution has been verified."
         : result.status === "SUBMITTED" ? "Your contribution was submitted and is awaiting verification."
-        : `Contribution status: ${result.status}.`;
-      save(null); setSuccess(true); setSuccessMessage(message); onResolved(message); refresh();
+        : `Contribution status: ${result.status}.`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
+      setReviewed(null);
       if (error instanceof ApiError && error.status < 500 && ![408, 409, 429].includes(error.status)) {
         save(null); setRecovering(false); setError(error.message);
       } else { setRecovering(true); await reconcile(); }
-    } finally { setBusy(false); }
+    } finally { inFlight.current = false; setBusy(false); }
   }
-  return <details className="dashboard-action" open={recovering || undefined}><summary>Submit contribution</summary>
+  return <details className="dashboard-action" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Submit contribution</summary>
     <p className="muted">Record a payment you made separately. The full amount is {formatAmount(contribution.expected_amount, group.currency)}.</p>
-    {recovering && <p role="status">A submission is awaiting confirmation. The original payment details are retained for a safe retry.</p>}
-    <form onSubmit={submit}>
-      <fieldset disabled={busy || recovering}>
-        <label>Payment method<input name="payment_method" required minLength={2} maxLength={30} defaultValue={restored?.payment_method} placeholder="Bank transfer" /></label>
-        <label>Payment reference<input name="payment_reference" required maxLength={255} defaultValue={restored?.payment_reference} /></label>
-      </fieldset>
+    {successMessage ? <p role="status">{successMessage}</p> : reviewed && !recovering ? <form onSubmit={submit} aria-label="Review contribution">
+      <h3>Review contribution</h3>
+      <dl className="group-details">
+        <div><dt>Amount</dt><dd>{formatAmount(reviewed.amount, group.currency)}</dd></div>
+        <div><dt>Due date</dt><dd>{formatDate(contribution.due_date)}</dd></div>
+        <div><dt>Payment method</dt><dd>{reviewed.payment_method}</dd></div>
+        <div><dt>Payment reference</dt><dd>{reviewed.payment_reference}</dd></div>
+      </dl>
+      <p>This records your payment for a group administrator to verify.</p>
       {error && <p role="alert" className="error">{error}</p>}
-      {success && <p role="status">{successMessage}</p>}
-      <button disabled={busy || success}>{busy ? "Checking…" : recovering ? "Retry submission" : "Submit contribution"}</button>
-      {recovering && <button type="button" className="secondary" disabled={busy} onClick={checkStatus}>Check submission status</button>}
-    </form>
+      <button disabled={busy}>{busy ? "Submitting…" : "Confirm submission"}</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => setReviewed(null)}>Edit payment details</button>
+    </form> : <>
+      {recovering && <p role="status">A submission is awaiting confirmation. The original payment details are retained for a safe retry.</p>}
+      <form onSubmit={recovering ? submit : review}>
+        <fieldset disabled={busy || recovering}>
+          <label>Amount<input readOnly value={formatAmount(contribution.expected_amount, group.currency)} /></label>
+          <label>Payment method<input name="payment_method" required minLength={2} maxLength={30} value={method} onChange={(event) => setMethod(event.target.value)} placeholder="Bank transfer" /></label>
+          <label>Payment reference<input name="payment_reference" required maxLength={255} value={reference} onChange={(event) => setReference(event.target.value)} /></label>
+        </fieldset>
+        {error && <p role="alert" className="error">{error}</p>}
+        <button disabled={busy}>{busy ? "Checking…" : recovering ? "Retry submission" : "Submit contribution"}</button>
+        {recovering && <button type="button" className="secondary" disabled={busy} onClick={checkStatus}>Check submission status</button>}
+      </form>
+    </>}
   </details>;
 }
 
@@ -257,6 +287,7 @@ export function VerifyContributions({ group, refresh, onResolved }: { group: Ajo
 
 function PendingList({ group, refresh, onResolved }: { group: AjoGroup; refresh: () => void; onResolved: (message: string) => void }) {
   const router = useRouter();
+  const inFlight = useRef(false);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -278,19 +309,21 @@ function PendingList({ group, refresh, onResolved }: { group: AjoGroup; refresh:
     }
   }
   async function checkStatus(id: string) {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(id); setActionError(null);
-    try { await reconcile(id); } finally { setBusy(null); }
+    try { await reconcile(id); } finally { inFlight.current = false; setBusy(null); }
   }
   async function verify(id: string) {
-    if (busy || uncertain === id || !window.confirm("Verify this contribution after confirming the payment was received?")) return;
+    if (inFlight.current || uncertain || !window.confirm("Verify this contribution after confirming the payment was received?")) return;
+    inFlight.current = true;
     setBusy(id); setActionError(null);
     try { await api(`/contributions/${id}/verify`, { method: "POST" }); confirmed(); }
     catch (error) {
       if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
       if (error instanceof ApiError && error.status < 500 && ![408, 409, 429].includes(error.status)) setActionError(error.message);
       else { setUncertain(id); await reconcile(id); }
-    } finally { setBusy(null); }
+    } finally { inFlight.current = false; setBusy(null); }
   }
 
   if (error) return <><p className="error" role="alert">{error}</p><button onClick={retry}>Try again</button></>;
@@ -300,11 +333,11 @@ function PendingList({ group, refresh, onResolved }: { group: AjoGroup; refresh:
     {data.items.length === 0 ? <p>No submitted contributions on this page.</p> : <ul className="pending-list">{data.items.map((item) => <li key={item.contribution_id}>
       <strong>{item.first_name} {item.last_name}</strong><p>Cycle {item.cycle_number} · Due {formatDate(item.due_date)} · {formatAmount(item.paid_amount, group.currency)}</p>
       <p>Method: {item.payment_method || "Not provided"} · Reference: {item.payment_reference || "Not provided"}</p>
-      <button disabled={Boolean(busy) || uncertain === item.contribution_id} onClick={() => verify(item.contribution_id)}>{busy === item.contribution_id ? "Verifying…" : `Verify ${item.first_name} ${item.last_name}’s contribution`}</button>
+      <button disabled={Boolean(busy) || Boolean(uncertain)} onClick={() => verify(item.contribution_id)}>{busy === item.contribution_id ? "Verifying…" : `Verify ${item.first_name} ${item.last_name}’s contribution`}</button>
       {uncertain === item.contribution_id && <button className="secondary" disabled={Boolean(busy)} onClick={() => checkStatus(item.contribution_id)}>Check verification status for {item.first_name} {item.last_name}</button>}
     </li>)}</ul>}
-    <div className="pagination"><button className="secondary" disabled={page <= 1 || Boolean(busy)} onClick={() => setPage(page - 1)}>Previous</button>
+    <div className="pagination"><button className="secondary" disabled={page <= 1 || Boolean(busy) || Boolean(uncertain)} onClick={() => setPage(page - 1)}>Previous</button>
       <span>Page {page} of {Math.max(1, Math.ceil(data.total / data.page_size))}</span>
-      <button className="secondary" disabled={page * data.page_size >= data.total || Boolean(busy)} onClick={() => setPage(page + 1)}>Next</button></div>
+      <button className="secondary" disabled={page * data.page_size >= data.total || Boolean(busy) || Boolean(uncertain)} onClick={() => setPage(page + 1)}>Next</button></div>
   </>;
 }
