@@ -155,6 +155,8 @@ Owners and admins can copy a pending invitation token or link from the group das
 
 The signed-in account must have the invited phone number. Invalid, expired, cancelled, mismatched, or already-used invitations return an error. If the same account retries an acceptance after losing the response, the existing membership is returned without a second audit entry or notification, including after activation. A cancelled group cannot be joined. Every member can view the roster; only the owner can change roles, and cancelled groups cannot have roles changed.
 
+Invitation links and tokens have copy buttons with a manual-selection fallback. Invitations for existing members are rejected. If a role-update response is lost, the UI checks the roster and blocks further role edits until the result can be confirmed. A second invitation link can be opened in the same tab, including after a successful acceptance.
+
 Invitation acceptance requires verification of the matching phone number. Registration phone numbers are self-reported until verified; claiming a number does not reserve it or authorize an invitation. Invitation links and tokens are bearer secrets: share them securely.
 
 ## Phone verification

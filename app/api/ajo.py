@@ -282,6 +282,11 @@ def create_invitation(ajo_id: UUID, payload: InvitationCreate, db: Session = Dep
     role = payload.role.upper()
     if role not in {"MEMBER", "ADMIN", "TREASURER"}:
         raise HTTPException(422, "Invitation role must be MEMBER, ADMIN, or TREASURER")
+    existing_member = db.scalar(select(AjoMember.id).join(User, AjoMember.user_id == User.id).where(
+        AjoMember.ajo_group_id == ajo.id, User.verified_phone_number == phone_number,
+        User.phone_verified_at.is_not(None)))
+    if existing_member:
+        raise HTTPException(409, "This phone number already belongs to a group member")
     existing = db.scalar(select(AjoInvitation).where(AjoInvitation.ajo_group_id == ajo.id, AjoInvitation.phone_number == phone_number, AjoInvitation.status == "PENDING"))
     if existing and existing.expires_at > datetime.now(timezone.utc):
         raise HTTPException(409, "A pending invitation already exists for this phone number")

@@ -65,6 +65,11 @@
   - Acceptance: an owner can invite a phone number; the invited account can accept; non-admin controls are not presented to ordinary members.
   - Delivered: invite links and token entry, same-tab continuation through login/registration, account switching, safe acceptance retry, and a member-visible roster with owner-only role controls. Phone ownership is verified through Firebase phone authentication over SMS before a new invitation can be accepted; configure Firebase in the frontend and backend environment.
 
+- [x] Add invitation token/link copy buttons with a fallback when clipboard access is unavailable.
+- [x] Reconcile uncertain member-role changes against the roster before allowing another update.
+- [x] Reject invitations for existing members so unusable invitations cannot block activation.
+- [x] Handle another invitation link in the same tab and warn when invitation-token storage is unavailable.
+
 ## 6. Contribution workflows
 
 - [x] Build the contribution submission form from the dashboard schedule ID.

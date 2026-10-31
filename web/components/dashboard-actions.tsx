@@ -11,6 +11,26 @@ function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "Unable to connect. Check the group before trying again.";
 }
 
+function CopyInvitation({ label, value }: { label: string; value: string }) {
+  const input = useRef<HTMLInputElement | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessage("Copied.");
+    } catch {
+      input.current?.focus();
+      input.current?.select();
+      setMessage("Automatic copying is unavailable. The text is selected; use your device’s copy command.");
+    }
+  }
+  return <div>
+    <label>{label}<input ref={input} readOnly value={value} onFocus={(event) => event.currentTarget.select()} /></label>
+    <button type="button" className="secondary" onClick={copy}>Copy {label.toLowerCase()}</button>
+    {message && <p role="status">{message}</p>}
+  </div>;
+}
+
 export function InviteMember({ group, refresh }: { group: AjoGroup; refresh: () => void }) {
   const [open, setOpen] = useState(false);
   return <details className="dashboard-action" onToggle={(event) => setOpen(event.currentTarget.open)}><summary>Invite a member</summary>
@@ -32,7 +52,7 @@ function InvitationPanel({ group, refresh }: { group: AjoGroup; refresh: () => v
     setBusy(true); setError(null); setMessage(null);
     try {
       await api(`/ajo-groups/${group.id}/invitations`, { method: "POST", body: JSON.stringify({ phone_number: String(data.get("phone_number")), role: String(data.get("role")) }) });
-      setMessage("Invitation created. Copy the token from the pending invitations below."); changed();
+      setMessage("Invitation created. Copy the link or token from the pending invitations below."); changed();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
       setError(`${errorMessage(error)} Check pending invitations before retrying.`); changed();
@@ -50,7 +70,7 @@ function InvitationPanel({ group, refresh }: { group: AjoGroup; refresh: () => v
     } finally { setBusy(false); }
   }
   return <>
-    <p className="muted">The invited account must have the same phone number. Share the token with them securely.</p>
+    <p className="muted">The invited account must verify this phone number before joining. Share the invitation link securely.</p>
     <form onSubmit={submit}>
       <label>Phone number<input name="phone_number" type="tel" required minLength={7} maxLength={30} placeholder="+14165550101" /></label>
       <label>Role<select name="role" defaultValue="MEMBER"><option value="MEMBER">Member</option><option value="ADMIN">Admin</option><option value="TREASURER">Treasurer</option></select></label>
@@ -65,8 +85,8 @@ function InvitationPanel({ group, refresh }: { group: AjoGroup; refresh: () => v
       : !invitations ? <p role="status">Loading invitations…</p>
       : <>{invitations.items.length === 0 ? <p>No pending invitations on this page.</p> : <ul className="pending-list">{invitations.items.map((invitation) => <li key={invitation.id}>
         <strong>{invitation.phone_number}</strong> · {invitation.role.toLowerCase()} · Expires {new Date(invitation.expires_at).toLocaleString()}
-        <label>Invitation token for {invitation.phone_number}<input readOnly value={invitation.token} onFocus={(event) => event.currentTarget.select()} /></label>
-        <label>Invitation link for {invitation.phone_number}<input readOnly value={`${window.location.origin}/invitations/accept#token=${encodeURIComponent(invitation.token)}`} onFocus={(event) => event.currentTarget.select()} /></label>
+        <CopyInvitation label={`Invitation token for ${invitation.phone_number}`} value={invitation.token} />
+        <CopyInvitation label={`Invitation link for ${invitation.phone_number}`} value={`${window.location.origin}/invitations/accept#token=${encodeURIComponent(invitation.token)}`} />
         <button className="secondary" disabled={busy} onClick={() => cancel(invitation.id)}>Cancel invitation for {invitation.phone_number}</button>
       </li>)}</ul>}
       <div className="pagination"><button className="secondary" disabled={page <= 1 || busy} onClick={() => setPage(page - 1)}>Previous invitations</button>
@@ -87,26 +107,59 @@ function MemberRoleList({ group, refresh, canManage }: { group: AjoGroup; refres
   const { data: members, error, retry } = useResource<Member[]>(`/ajo-groups/${group.id}/members`);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  async function update(member: Member, role: string) {
-    if (busy || role === member.role) return;
-    setBusy(member.id); setActionError(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [uncertain, setUncertain] = useState<{ member: Member; role: string } | null>(null);
+  function confirmed(member: Member, role: string) {
+    setUncertain(null); setActionError(null);
+    setMessage(`Role for ${member.first_name} ${member.last_name} saved as ${role.toLowerCase()}.`);
+    retry(); refresh();
+  }
+  async function reconcile(member: Member, role: string) {
     try {
-      await api(`/ajo-groups/${group.id}/members/${member.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
-      retry(); refresh();
+      const current = await api<Member[]>(`/ajo-groups/${group.id}/members`);
+      const saved = current.find((item) => item.id === member.id);
+      if (saved?.role === role) confirmed(member, role);
+      else {
+        setUncertain(null); retry(); refresh();
+        setActionError("The refreshed roster does not show the requested role. Review it before making another change.");
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
-      setActionError(errorMessage(error));
+      setUncertain({ member, role });
+      setActionError("Unable to confirm the role change. Check member roles before making another change.");
+    }
+  }
+  async function checkRoles() {
+    if (busy || !uncertain) return;
+    setBusy(uncertain.member.id);
+    try { await reconcile(uncertain.member, uncertain.role); } finally { setBusy(null); }
+  }
+  async function update(member: Member, role: string) {
+    if (busy || uncertain || role === member.role) return;
+    setBusy(member.id); setActionError(null); setMessage(null);
+    try {
+      await api(`/ajo-groups/${group.id}/members/${member.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) });
+      confirmed(member, role);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) { router.replace("/login"); return; }
+      if (!(error instanceof ApiError) || error.status >= 500 || [408, 409, 429].includes(error.status)) {
+        await reconcile(member, role);
+      } else { setActionError(errorMessage(error)); retry(); refresh(); }
     } finally { setBusy(null); }
   }
-  if (error) return <><p className="error" role="alert">{error}</p><button onClick={retry}>Try again</button></>;
-  if (!members) return <p role="status">Loading members…</p>;
   return <><p className="muted">Only the owner can change roles.</p>
     {actionError && <p className="error" role="alert">{actionError}</p>}
-    <ul className="member-list">{members.map((member) => <li key={member.id}>
-      <span>{member.first_name} {member.last_name}{member.payout_position != null && <span className="muted"> · Payout position {member.payout_position}</span>}</span>
-      {!canManage || member.role === "OWNER" ? <strong>{member.role.toLowerCase()}</strong> : <label>Role for {member.first_name} {member.last_name}<select value={member.role} disabled={Boolean(busy)} onChange={(event) => update(member, event.target.value)}>
-        <option value="MEMBER">Member</option><option value="ADMIN">Admin</option><option value="TREASURER">Treasurer</option></select></label>}
-    </li>)}</ul></>;
+    {message && <p role="status">{message}</p>}
+    {uncertain && <button type="button" className="secondary" disabled={Boolean(busy)} onClick={checkRoles}>Check member roles</button>}
+    {error ? <><p className="error" role="alert">{error}</p><button onClick={retry}>Try again</button></>
+      : !members ? <p role="status">Loading members…</p>
+      : members.length === 0 ? <p>No active members.</p>
+      : <ul className="member-list">{members.map((member) => <li key={member.id}>
+        <span>{member.first_name} {member.last_name}{member.payout_position != null && <span className="muted"> · Payout position {member.payout_position}</span>}</span>
+        {!canManage || member.role === "OWNER" ? <strong>{member.role.toLowerCase()}</strong> : <label>Role for {member.first_name} {member.last_name}<select value={member.role} disabled={Boolean(busy) || Boolean(uncertain)} onChange={(event) => update(member, event.target.value)}>
+          <option value="MEMBER">Member</option><option value="ADMIN">Admin</option><option value="TREASURER">Treasurer</option></select></label>}
+      </li>)}</ul>}
+  </>;
 }
 
 type PendingSubmission = { schedule_id: string; amount: string; payment_method: string; payment_reference: string };

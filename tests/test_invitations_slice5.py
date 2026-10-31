@@ -77,3 +77,20 @@ def test_owner_only_role_changes_are_enforced_by_server(client):
     assert client.get(f'/api/v1/ajo-groups/{group_id}/members', headers=auth(member)).status_code == 200
     assert client.post(f'/api/v1/ajo-groups/{group_id}/cancel', headers=auth(owner)).status_code == 200
     assert client.patch(url, headers=auth(owner), json={'role': 'MEMBER'}).status_code == 409
+
+
+def test_existing_members_cannot_receive_invitations_that_block_activation(client):
+    owner, _ = account(client, 1)
+    member, member_id = account(client, 2)
+    group_id = create_group(client, owner)
+    response = client.post(f'/api/v1/ajo-groups/{group_id}/members', headers=auth(owner), json={'user_id': member_id})
+    assert response.status_code == 201
+    for phone in ('+1 (416) 555-0001', '+14165550002'):
+        response = client.post(f'/api/v1/ajo-groups/{group_id}/invitations', headers=auth(owner), json={'phone_number': phone})
+        assert response.status_code == 409
+        assert 'already belongs to a group member' in response.json()['detail']
+    assert client.get(f'/api/v1/ajo-groups/{group_id}/invitations', headers=auth(owner)).json()['total'] == 0
+    assert client.post(f'/api/v1/ajo-groups/{group_id}/activate', headers=auth(owner)).status_code == 200
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(AjoInvitation)) == 0
+        assert db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == 'CREATE_INVITATION')) == 0

@@ -33,15 +33,20 @@ export default function AcceptInvitationPage() {
     // Fragments are not sent to the server; remove the token from the address bar after capture.
     const fromLink = new URLSearchParams(window.location.hash.slice(1)).get("token");
     let saved = captured.current ?? "";
-    try { saved = sessionStorage.getItem(STORAGE_KEY) ?? saved; } catch { /* Token can still be pasted after sign-in. */ }
+    if (captured.current === null) {
+      try { saved = sessionStorage.getItem(STORAGE_KEY) ?? saved; } catch { /* Token can still be pasted after sign-in. */ }
+    }
     if (fromLink !== null) {
       captured.current = fromLink;
       saved = fromLink;
-      const stored = remember(fromLink);
       window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
-      Promise.resolve().then(() => { if (!controller.signal.aborted) setStorageAvailable(stored); });
     }
-    Promise.resolve().then(() => { if (!controller.signal.aborted) setToken(saved); });
+    // Check storage again on each effect run: Strict Mode can cancel the first
+    // run after the fragment has already been removed from the address bar.
+    const stored = remember(saved);
+    Promise.resolve().then(() => {
+      if (!controller.signal.aborted) { setToken(saved); setStorageAvailable(stored); }
+    });
     getCurrentUser().then((current) => {
       if (!controller.signal.aborted) { setUser(current); setAuthError(null); setLoading(false); }
     }).catch((caught) => {
@@ -58,6 +63,19 @@ export default function AcceptInvitationPage() {
     setToken(value);
     setStorageAvailable(remember(value.trim()));
   }, []);
+
+  useEffect(() => {
+    function receiveLink() {
+      const incoming = new URLSearchParams(window.location.hash.slice(1)).get("token");
+      if (incoming === null || busy) return;
+      changeToken(incoming);
+      setAccepted(null); setError(null);
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+    }
+    receiveLink();
+    window.addEventListener("hashchange", receiveLink);
+    return () => window.removeEventListener("hashchange", receiveLink);
+  }, [busy, changeToken]);
 
   async function accept(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,21 +106,21 @@ export default function AcceptInvitationPage() {
       : authError ? <><p className="error" role="alert">{authError}</p><button onClick={() => { setLoading(true); setAttempt((value) => value + 1); }}>Try again</button></>
       : accepted ? <><p role="status">You joined the group as {accepted.role.toLowerCase()}.</p><Link className="button-link" href={`/dashboard/ajos/${accepted.ajo_group_id}`}>View group</Link><p><Link href="/dashboard">My Ajos</Link></p></>
       : <>
-        <p className="muted">Enter your invitation token. Your account phone number must match the invited number.</p>
+        <p className="muted">Enter your invitation token. Your verified phone number must match the invited number.</p>
+        {!storageAvailable && <p className="hint">Keep this token handy; you may need to paste it again after signing in or refreshing.</p>}
         {user ? <><p>Signed in as <strong>{user.first_name} {user.last_name}</strong> ({user.email})</p>
           <p className="muted">Account phone: {user.phone_number || "Not provided"}</p>
           <button type="button" className="secondary" disabled={busy} onClick={switchAccount}>Use another account</button>
           {!user.phone_verified ? <PhoneVerificationForm user={user} onVerified={(verified) => { setUser(verified); setError(null); }} /> : <p role="status">Phone number verified.</p>}
           {user.phone_verified && <details onToggle={(event) => setVerifyOther(event.currentTarget.open)}><summary>Verify a different number</summary>{verifyOther && <PhoneVerificationForm user={user} onVerified={(verified) => { setUser(verified); setError(null); }} />}</details>}
           <form onSubmit={accept}>
-            <label>Invitation token<input value={token} onChange={(event) => changeToken(event.target.value)} required maxLength={36} autoComplete="off" aria-invalid={Boolean(error)} /></label>
+            <label>Invitation token<input value={token} onChange={(event) => changeToken(event.target.value)} required maxLength={36} autoComplete="off" disabled={busy} aria-invalid={Boolean(error)} /></label>
             {error && <p className="error" role="alert">{error}</p>}
             <button disabled={busy || !user.phone_verified}>{busy ? "Joining group…" : "Accept invitation"}</button>
           </form>
           <p><Link href="/dashboard">Back to My Ajos</Link></p></>
           : <>
             <label>Invitation token<input value={token} onChange={(event) => changeToken(event.target.value)} maxLength={36} autoComplete="off" /></label>
-            {!storageAvailable && <p className="hint">Keep this token handy; you will need to paste it again after signing in.</p>}
             {error && <p className="error" role="alert">{error}</p>}
             <p><Link className="button-link" href="/login?next=%2Finvitations%2Faccept">Sign in to continue</Link></p>
             <p>New to AjoCircle? <Link href="/register?next=%2Finvitations%2Faccept">Create an account</Link> with the invited phone number.</p>
