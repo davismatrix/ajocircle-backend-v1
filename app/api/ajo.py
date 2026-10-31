@@ -1,5 +1,6 @@
 from hashlib import sha256
 import json
+from typing import Literal
 
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -11,7 +12,7 @@ from app.core.deps import get_current_user
 from app.core.config import settings
 from app.core.phone import normalize_phone
 from app.models import AjoCreationRequest, Notification, AjoCycle, AjoGroup, AjoInvitation, AjoMember, AjoRule, AuditLog, Contribution, ContributionSchedule, Payout, User
-from app.schemas.ajo import ActivationPreview, ActivationRequest, InvitationPage, InvitationAcceptedResponse, AjoCreate, AjoResponse, GroupDashboard, GroupHistory, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
+from app.schemas.ajo import ActivationPreview, ActivationRequest, InvitationPage, InvitationAcceptedResponse, AjoCreate, AjoResponse, GroupDashboard, ContributionHistoryPage, CycleHistoryPage, InvitationAccept, InvitationCreate, InvitationResponse, PendingContributions, MemberAdd, MemberDetailResponse, MemberResponse, MemberRoleUpdate, MyAjoResponse
 from app.services.audit import audit
 from app.services.cycles import generate_cycles
 from app.services.notifications import notify
@@ -369,24 +370,56 @@ def pending_contributions(ajo_id: UUID, page: int = Query(1, ge=1), page_size: i
         "page": page, "page_size": page_size, "total": total}
 
 
-@router.get("/{ajo_id}/contributions/history", response_model=GroupHistory)
-def contribution_history(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+@router.get("/{ajo_id}/contributions/history", response_model=ContributionHistoryPage)
+def contribution_history(ajo_id: UUID, response: Response, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), member_id: UUID | None = None, status: Literal["EXPECTED", "PENDING", "SUBMITTED", "VERIFIED"] | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, actor = require_membership(db, ajo_id, user)
-    query = select(ContributionSchedule, Contribution, AjoCycle).join(AjoCycle, ContributionSchedule.ajo_cycle_id == AjoCycle.id).outerjoin(Contribution, Contribution.contribution_schedule_id == ContributionSchedule.id).where(AjoCycle.ajo_group_id == ajo.id)
+    response.headers["Cache-Control"] = "no-store"
+    query = (select(ContributionSchedule, Contribution, AjoCycle, User)
+        .join(AjoCycle, ContributionSchedule.ajo_cycle_id == AjoCycle.id)
+        .outerjoin(Contribution, Contribution.contribution_schedule_id == ContributionSchedule.id)
+        .join(AjoMember, ContributionSchedule.member_id == AjoMember.id)
+        .join(User, AjoMember.user_id == User.id)
+        .where(AjoCycle.ajo_group_id == ajo.id))
     if member_id:
         if actor.role not in {"OWNER", "ADMIN", "TREASURER"} and actor.id != member_id:
             raise HTTPException(403, "Insufficient permission")
+        if not db.scalar(select(AjoMember.id).where(AjoMember.id == member_id, AjoMember.ajo_group_id == ajo.id)):
+            raise HTTPException(404, "Member not found in this group")
         query = query.where(ContributionSchedule.member_id == member_id)
     elif actor.role not in {"OWNER", "ADMIN", "TREASURER"}:
         query = query.where(ContributionSchedule.member_id == actor.id)
+    if status:
+        query = query.where(func.coalesce(Contribution.status, ContributionSchedule.status) == status)
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = db.execute(query.order_by(ContributionSchedule.due_date.desc()).offset((page - 1) * page_size).limit(page_size)).all()
-    return {"items": [{"schedule_id": str(schedule.id), "cycle_id": str(cycle.id), "cycle_number": cycle.cycle_number, "due_date": schedule.due_date, "expected_amount": schedule.expected_amount, "schedule_status": schedule.status, "contribution_id": str(contribution.id) if contribution else None, "paid_amount": contribution.paid_amount if contribution else None, "contribution_status": contribution.status if contribution else None} for schedule, contribution, cycle in rows], "page": page, "page_size": page_size, "total": total}
+    rows = db.execute(query.order_by(ContributionSchedule.due_date.desc(), ContributionSchedule.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [{"schedule_id": schedule.id, "cycle_id": cycle.id, "cycle_number": cycle.cycle_number,
+        "member_id": schedule.member_id, "first_name": member_user.first_name, "last_name": member_user.last_name,
+        "due_date": schedule.due_date, "expected_amount": schedule.expected_amount, "schedule_status": schedule.status,
+        "contribution_id": contribution.id if contribution else None, "paid_amount": contribution.paid_amount if contribution else None,
+        "contribution_status": contribution.status if contribution else None,
+        "payment_method": contribution.payment_method if contribution else None,
+        "payment_reference": contribution.payment_reference if contribution else None,
+        "submitted_at": contribution.submitted_at if contribution else None,
+        "verified_at": contribution.verified_at if contribution else None} for schedule, contribution, cycle, member_user in rows],
+        "page": page, "page_size": page_size, "total": total}
 
-@router.get("/{ajo_id}/cycles/history", response_model=GroupHistory)
-def cycle_history(ajo_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+
+@router.get("/{ajo_id}/cycles/history", response_model=CycleHistoryPage)
+def cycle_history(ajo_id: UUID, response: Response, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), payout_status: Literal["PENDING", "PAID"] | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ajo, _ = require_membership(db, ajo_id, user)
-    query = select(AjoCycle, Payout).outerjoin(Payout, Payout.ajo_cycle_id == AjoCycle.id).where(AjoCycle.ajo_group_id == ajo.id)
+    response.headers["Cache-Control"] = "no-store"
+    query = (select(AjoCycle, Payout, User.first_name, User.last_name)
+        .outerjoin(Payout, Payout.ajo_cycle_id == AjoCycle.id)
+        .outerjoin(AjoMember, AjoMember.id == AjoCycle.payout_recipient_id)
+        .outerjoin(User, AjoMember.user_id == User.id).where(AjoCycle.ajo_group_id == ajo.id))
+    if payout_status:
+        query = query.where(Payout.status == payout_status)
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = db.execute(query.order_by(AjoCycle.cycle_number.desc()).offset((page - 1) * page_size).limit(page_size)).all()
-    return {"items": [{"cycle_id": str(cycle.id), "cycle_number": cycle.cycle_number, "period_start": cycle.period_start, "period_end": cycle.period_end, "recipient_member_id": str(cycle.payout_recipient_id) if cycle.payout_recipient_id else None, "expected_amount": cycle.expected_amount, "status": cycle.status, "payout_id": str(payout.id) if payout else None, "payout_status": payout.status if payout else None, "actual_amount": payout.actual_amount if payout else None} for cycle, payout in rows], "page": page, "page_size": page_size, "total": total}
+    rows = db.execute(query.order_by(AjoCycle.cycle_number.desc(), AjoCycle.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [{"cycle_id": cycle.id, "cycle_number": cycle.cycle_number,
+        "period_start": cycle.period_start, "period_end": cycle.period_end,
+        "recipient_member_id": cycle.payout_recipient_id, "recipient_first_name": first_name, "recipient_last_name": last_name,
+        "expected_amount": cycle.expected_amount, "status": cycle.status, "payout_id": payout.id if payout else None,
+        "payout_status": payout.status if payout else None, "actual_amount": payout.actual_amount if payout else None,
+        "paid_at": payout.paid_at if payout else None} for cycle, payout, first_name, last_name in rows],
+        "page": page, "page_size": page_size, "total": total}

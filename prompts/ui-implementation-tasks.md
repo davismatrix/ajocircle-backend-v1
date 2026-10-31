@@ -50,7 +50,7 @@
 - [x] Add role-aware actions: invite member, activate group, manage member role, submit contribution, or verify contribution.
 - [x] Add predictable empty states for draft groups and groups with no current cycle.
   - Acceptance: members can understand their next required action without opening history pages.
-  - Delivered: the dashboard supports activation, invitation token creation, owner role changes, contribution submission, and paginated review/verification for authorized roles. Invitation acceptance remains in Slice 5; full history pages remain in Slice 7.
+  - Delivered: the dashboard supports activation, invitation token creation, owner role changes, contribution submission, and paginated review/verification for authorized roles. Invitation acceptance is covered in Slice 5; full history pages are covered in Slice 7.
 - [x] Review the frozen payout order before activation; reject stale reviews and block activation while live invitations remain pending.
 - [x] Recover pending invitation tokens after lost responses or reloads; allow authorized users to cancel invitations.
 - [x] Reconcile uncertain contribution submissions and verification before retrying, including after a same-tab reload.
@@ -77,14 +77,15 @@
 - [x] Build the owner/admin/treasurer verification action for submitted contributions.
 - [x] Add confirmation states and disable repeated submissions while requests are in flight.
   - Acceptance: a member can submit one contribution and an authorized user can verify it; the dashboard and history reflect the new status.
-  - Delivered: fixed-amount payment entry, review/edit/confirm before recording a contribution, synchronous in-flight guards, and persistent confirmation notices. Uncertain submissions retain their original payment details; uncertain verification blocks other review actions until checked. Backend tests verify dashboard/history transitions, permissions, replay behavior, and a single ledger entry. Full history screens remain in Slice 7.
+  - Delivered: fixed-amount payment entry, review/edit/confirm before recording a contribution, synchronous in-flight guards, and persistent confirmation notices. Uncertain submissions retain their original payment details; uncertain verification blocks other review actions until checked. Backend tests verify dashboard/history transitions, permissions, replay behavior, and a single ledger entry. Full history screens are covered in Slice 7.
 
 ## 7. History and records
 
-- [ ] Build contribution history with pagination, status badges, due dates, expected/paid amounts, and role-aware filtering.
-- [ ] Build cycle history with recipient, period, expected amount, and payout status.
-- [ ] Add URL query synchronization for page and filter state.
+- [x] Build contribution history with pagination, status badges, due dates, expected/paid amounts, and role-aware filtering.
+- [x] Build cycle history with recipient, period, expected amount, and payout status.
+- [x] Add URL query synchronization for page and filter state.
   - Acceptance: users can navigate historical records without client-side data loss and can share a filtered history URL.
+  - Delivered: group contribution and cycle history pages with status/member filters, URL-based pagination and page size, exact decimal amounts, named recipients, payment details, loading/error/empty states, and recovery from invalid or out-of-range URLs. History APIs use typed response models and deterministic ordering; server-side membership and role checks enforce access.
 
 ## 8. Notification inbox
 

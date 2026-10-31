@@ -98,5 +98,20 @@ test("owner invites and activates; member submits and owner verifies", async ({ 
     await expect(page.getByText("No submitted contributions on this page.")).toBeVisible();
     await member.reload();
     await expect(member.getByText("Contribution verified", { exact: true })).toBeVisible();
+    await member.getByRole("link", { name: "Contribution history", exact: true }).click();
+    await expect(member.getByRole("heading", { name: "Contribution history", exact: true })).toBeVisible();
+    await expect(member.getByText(`REF-${suffix}`, { exact: true })).toBeVisible();
+    await expect(member.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+    await member.getByLabel("Contribution status").selectOption("VERIFIED");
+    await expect(member.getByText("1 record · Page 1 of 1 · Newest first")).toBeVisible();
+    await member.reload();
+    await expect(member.getByLabel("Contribution status")).toHaveValue("VERIFIED");
+    await expect(member.getByText(`REF-${suffix}`, { exact: true })).toBeVisible();
+    await member.getByRole("link", { name: "Cycle history", exact: true }).click();
+    await expect(member.getByRole("heading", { name: "Cycle history", exact: true })).toBeVisible();
+    await expect(member.getByRole("article")).toHaveCount(2);
+    await page.getByRole("link", { name: "Contribution history", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveValue("");
+    await expect(page.getByRole("article")).toHaveCount(4);
   } finally { await memberContext.close(); }
 });

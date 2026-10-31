@@ -132,8 +132,47 @@ class PendingContributions(BaseModel):
     page: int
     page_size: int
     total: int
-class GroupHistory(BaseModel):
-    items: list[dict]
+class ContributionHistoryItem(BaseModel):
+    schedule_id: UUID
+    cycle_id: UUID
+    cycle_number: int
+    member_id: UUID
+    first_name: str
+    last_name: str
+    due_date: date
+    expected_amount: Decimal
+    schedule_status: str
+    contribution_id: UUID | None
+    paid_amount: Decimal | None
+    contribution_status: str | None
+    payment_method: str | None
+    payment_reference: str | None
+    submitted_at: datetime | None
+    verified_at: datetime | None
+
+class ContributionHistoryPage(BaseModel):
+    items: list[ContributionHistoryItem]
+    page: int
+    page_size: int
+    total: int
+
+class CycleHistoryItem(BaseModel):
+    cycle_id: UUID
+    cycle_number: int
+    period_start: date
+    period_end: date
+    recipient_member_id: UUID | None
+    recipient_first_name: str | None
+    recipient_last_name: str | None
+    expected_amount: Decimal
+    status: str
+    payout_id: UUID | None
+    payout_status: str | None
+    actual_amount: Decimal | None
+    paid_at: datetime | None
+
+class CycleHistoryPage(BaseModel):
+    items: list[CycleHistoryItem]
     page: int
     page_size: int
     total: int

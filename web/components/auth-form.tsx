@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ApiError, login, register } from "@/lib/api";
+import { authReturnPath } from "@/lib/auth-return";
 
 type Mode = "login" | "register";
 
-export function AuthForm({ mode, continueInvitation = false }: { mode: Mode; continueInvitation?: boolean }) {
+export function AuthForm({ mode, returnTo = "/dashboard" }: { mode: Mode; returnTo?: string }) {
+  const destination = authReturnPath(returnTo);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,7 +29,7 @@ export function AuthForm({ mode, continueInvitation = false }: { mode: Mode; con
             phone_number: String(data.get("phone_number")) || undefined,
             password: String(data.get("password")),
           }));
-      router.replace(continueInvitation ? "/invitations/accept" : "/dashboard");
+      router.replace(destination);
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to reach the API. Please try again.");
     } finally {
@@ -36,7 +38,7 @@ export function AuthForm({ mode, continueInvitation = false }: { mode: Mode; con
   }
 
   const registering = mode === "register";
-  const nextPath = continueInvitation ? "?next=%2Finvitations%2Faccept" : "";
+  const nextPath = destination === "/dashboard" ? "" : `?next=${encodeURIComponent(destination)}`;
   return <main className="auth-shell">
     <section className="auth-card">
       <p className="eyebrow">AjoCircle</p>

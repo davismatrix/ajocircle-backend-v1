@@ -62,3 +62,19 @@ export type Invitation = { id: string; phone_number: string; role: GroupRole; to
 export type InvitationPage = { items: Invitation[]; page: number; page_size: number; total: number };
 export type ActivationPreview = { group: AjoGroup; members: { member_id: string; first_name: string; last_name: string; role: GroupRole; payout_position: number }[]; pending_invitations: number; preview_hash: string };
 export type ContributionStatus = { schedule_id: string; schedule_status: string; contribution_id: string | null; contribution_status: string | null; payment_method: string | null; payment_reference: string | null };
+
+// Matches ContributionHistoryPage and CycleHistoryPage in app/schemas/ajo.py.
+export type HistoryPage<T> = { items: T[]; page: number; page_size: number; total: number };
+export type ContributionHistoryItem = {
+  schedule_id: string; cycle_id: string; cycle_number: number; member_id: string;
+  first_name: string; last_name: string; due_date: string; expected_amount: string;
+  schedule_status: string; contribution_id: string | null; paid_amount: string | null;
+  contribution_status: string | null; payment_method: string | null; payment_reference: string | null;
+  submitted_at: string | null; verified_at: string | null;
+};
+export type CycleHistoryItem = {
+  cycle_id: string; cycle_number: number; period_start: string; period_end: string;
+  recipient_member_id: string | null; recipient_first_name: string | null; recipient_last_name: string | null;
+  expected_amount: string; status: string; payout_id: string | null; payout_status: string | null;
+  actual_amount: string | null; paid_at: string | null;
+};

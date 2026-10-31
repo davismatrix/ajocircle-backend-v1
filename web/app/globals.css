@@ -85,3 +85,13 @@ input[readonly] { background: var(--canvas); color: var(--muted); }
 .phone-verification { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 20px; }
 .phone-verification h2 { font-size: 1.2rem; }
 .phone-verification form { margin-top: 16px; }
+
+.history-navigation { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }
+.history-navigation [aria-current="page"] { text-decoration-thickness: 3px; text-underline-offset: 5px; }
+.history-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 16px; align-items: end; margin-top: 24px; }
+.history-results { margin-top: 24px; }
+.history-list { list-style: none; padding: 0; margin: 24px 0; display: grid; gap: 24px; }
+.history-list article { border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.history-list h2 { font-size: 1.1rem; }
+.history-list .card-heading { flex-wrap: wrap; }
+.history-list .group-details { margin-top: 20px; gap: 16px; }

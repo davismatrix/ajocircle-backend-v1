@@ -67,6 +67,10 @@ export default function GroupPage() {
         <section className="dashboard-card">
           <div className="card-heading"><h1>{group.name}</h1><span className={`badge ${group.status === "ACTIVE" ? "badge-active" : ""}`}>{group.status}</span></div>
           <p className="muted">{group.status === "DRAFT" ? "Your group is in draft. Contributions begin after activation." : group.status === "CANCELLED" ? "This group has been cancelled. Its records are preserved." : "Your savings group overview."}</p>
+          <nav className="history-navigation" aria-label="Group records">
+            <Link href={`/dashboard/ajos/${group.id}/contributions`}>Contribution history</Link>
+            <Link href={`/dashboard/ajos/${group.id}/cycles`}>Cycle history</Link>
+          </nav>
           <p className="group-description">{group.description || "No description provided."}</p>
           <dl className="group-details">
             <div><dt>Contribution per member</dt><dd>{formatAmount(group.contribution_amount, group.currency)}</dd></div>
