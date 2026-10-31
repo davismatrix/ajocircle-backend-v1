@@ -180,3 +180,12 @@ Existing self-reported numbers remain visible but unverified. Migration `0004_ph
 Open **Contribution history** or **Cycle history** from a group dashboard. Contribution history shows due dates, expected and recorded amounts, payment references, and submission/verification timestamps. Ordinary members see only their own contributions; owners, admins, and treasurers can view all contributions and filter by member. Cycle history shows recipients, periods, expected and recorded payouts, payout status, and payment dates for all group members.
 
 The pages are `/dashboard/ajos/{id}/contributions` and `/dashboard/ajos/{id}/cycles`. URLs preserve `page`, `page_size`, contribution `status` and `member_id`, or cycle `payout_status`. Filters reset pagination to page one; reload and browser back/forward restore the selected view. Shared history links preserve their filters through login. Invalid URLs and out-of-range pages offer recovery links. History APIs return typed fields with money serialized as decimal strings and deterministic ordering. Existing memberships and financial records require no migration for these screens.
+
+
+## Notification inbox (Slice 8)
+
+Open **Notifications** in the dashboard navigation. The badge counts unread delivered in-app messages and refreshes on navigation, tab focus, inbox/contribution actions, and every 30 seconds while the tab is visible. An unavailable count is shown as `!`, not as a misleading zero.
+
+The inbox supports all/unread filtering, explicit mark-as-read actions, and URL pagination (`page` and `unread_only`). It fetches `GET /notifications` using `limit` and `offset`, so records older than the first 100 remain accessible. Marking read is idempotent and scoped to the current user. Invitation acceptance and group updates link to the group; contribution events link to contribution history; payout events link to cycle history. Shared inbox URLs survive login.
+
+The inbox contains delivered `IN_APP` records. Creating an invitation still only queues its external WhatsApp notification; no WhatsApp/SMS invitation message is sent automatically, and invitation creation does not yet create an inbox alert for the invited phone number. Share the invitation link manually. No database migration is needed for this slice.

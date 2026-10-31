@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCurrentUser } from "@/components/current-user";
 import { api, ApiError } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
+import { refreshUnreadCount } from "@/lib/notifications";
 import { AjoGroup, ContributionStatus, DashboardContribution, InvitationPage, Member, PendingContributions, formatAmount, formatDate } from "@/lib/ajo";
 
 function errorMessage(error: unknown) {
@@ -190,7 +191,7 @@ export function SubmitContribution({ group, contribution, refresh, onResolved }:
   }
   function resolved(message: string) {
     save(null); setRecovering(false); setReviewed(null); setSuccessMessage(message);
-    setOpen(true); onResolved(message); refresh();
+    setOpen(true); onResolved(message); refresh(); refreshUnreadCount();
   }
   async function reconcile() {
     try {
@@ -296,7 +297,7 @@ function PendingList({ group, refresh, onResolved }: { group: AjoGroup; refresh:
   function confirmed() {
     setUncertain(null); setActionError(null);
     if (data && data.items.length === 1 && page > 1) setPage(page - 1); else retry();
-    onResolved("Contribution verified."); refresh();
+    onResolved("Contribution verified."); refresh(); refreshUnreadCount();
   }
   async function reconcile(id: string) {
     try {

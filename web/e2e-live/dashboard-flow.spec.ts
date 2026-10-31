@@ -113,5 +113,19 @@ test("owner invites and activates; member submits and owner verifies", async ({ 
     await page.getByRole("link", { name: "Contribution history", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveValue("");
     await expect(page.getByRole("article")).toHaveCount(4);
+    await member.getByRole("link", { name: /^Notifications/ }).click();
+    await expect(member.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible();
+    await expect(member.getByRole("article", { name: "Ajo invitation accepted", exact: true })).toBeVisible();
+    await expect(member.getByRole("article", { name: "Contribution submitted", exact: true })).toBeVisible();
+    await expect(member.getByRole("article", { name: "Contribution verified", exact: true })).toBeVisible();
+    await expect(member.getByRole("link", { name: "Notifications, 3 unread", exact: true })).toBeVisible();
+    await member.getByRole("button", { name: "Mark Ajo invitation accepted as read", exact: true }).click();
+    await expect(member.getByRole("link", { name: "Notifications, 2 unread", exact: true })).toBeVisible();
+    await member.reload();
+    await expect(member.getByRole("button", { name: "Mark Ajo invitation accepted as read", exact: true })).toHaveCount(0);
+    await member.getByLabel("Show notifications").selectOption("true");
+    await expect(member.getByRole("article")).toHaveCount(2);
+    await member.getByRole("link", { name: "View contribution history", exact: true }).first().click();
+    await expect(member.getByText(`REF-${suffix}`, { exact: true })).toBeVisible();
   } finally { await memberContext.close(); }
 });

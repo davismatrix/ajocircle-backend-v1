@@ -89,11 +89,12 @@
 
 ## 8. Notification inbox
 
-- [ ] Add a notification badge using `GET /notifications/unread-count`.
-- [ ] Build the notifications page using `GET /notifications`.
-- [ ] Mark an item read using `POST /notifications/{notification_id}/read`.
-- [ ] Link actionable notifications to the relevant group or contribution screen.
+- [x] Add a notification badge using `GET /notifications/unread-count`.
+- [x] Build the notifications page using `GET /notifications`.
+- [x] Mark an item read using `POST /notifications/{notification_id}/read`.
+- [x] Link actionable notifications to the relevant group or contribution screen.
   - Acceptance: invitation acceptance and contribution events appear in the member inbox and can be marked read.
+  - Delivered: `/dashboard/notifications` with unread/all filtering, URL pagination, read states, safe retries, and links to group, contribution, and cycle records. The unread badge refreshes on navigation, focus, inbox/contribution actions, and every 30 seconds while visible. APIs scope the inbox to delivered in-app notifications and serialize mark-read retries. Queued WhatsApp invitations remain an outbox, with no automatic external delivery.
 
 ## 9. Quality and delivery
 
